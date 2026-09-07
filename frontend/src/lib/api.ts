@@ -262,6 +262,18 @@ export const api = {
     }),
     remove: (agentId: string) => withFallback(() => request<void>(`/agents/${agentId}`, { method: 'DELETE' }), async () => { await pause(); writeStorage(AGENTS_KEY, demoAgentList().filter((item) => item.id !== agentId)); }),
   },
+  feedback: (
+  messageId: string,
+  value: 1 | -1,
+  reason?: string,
+) =>
+  request<void>(`/messages/${messageId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({
+      value,
+      reason,
+    }),
+  }),
   knowledge: {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
     add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File }) => withFallback(async () => {

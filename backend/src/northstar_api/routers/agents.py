@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
-from northstar_api.models import Agent, Conversation, ConversationState, KnowledgeSource
+from northstar_api.models import Agent, AgentStatus, Conversation, ConversationState, KnowledgeSource
 from northstar_api.schemas import (
     AgentAppearance,
     AgentCreate,
@@ -100,8 +100,11 @@ async def list_agents(principal: CurrentPrincipal, session: DB) -> list[AgentOut
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session: DB) -> AgentOut:
     agent = Agent(
-        tenant_id=principal.tenant_id, name=payload.name.strip(), description=payload.description.strip()
-    )
+    tenant_id=principal.tenant_id,
+    name=payload.name.strip(),
+    description=payload.description.strip(),
+    status=AgentStatus.ACTIVE,
+)
     session.add(agent)
     try:
         await session.flush()

@@ -85,16 +85,40 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
     )
     feedback = (
         await session.execute(
-            select(MessageFeedback.value, func.count())
+            select(
+                MessageFeedback.value,
+                func.count().label("count"),
+            )
             .where(
-                MessageFeedback.tenant_id == principal.tenant_id, MessageFeedback.created_at >= current_start
+                MessageFeedback.tenant_id == principal.tenant_id,
+                MessageFeedback.created_at >= current_start,
             )
             .group_by(MessageFeedback.value)
         )
     ).all()
-    feedback_counts = {int(value): int(count) for value, count in feedback}
-    feedback_total = sum(feedback_counts.values())
-    satisfaction = round(5 * feedback_counts.get(1, 0) / feedback_total, 1) if feedback_total else 0.0
+
+    positive_feedback = sum(
+        int(count)
+        for value, count in feedback
+        if int(value) == 1
+    )
+
+    negative_feedback = sum(
+        int(count)
+        for value, count in feedback
+        if int(value) == -1
+    )
+
+    feedback_total = positive_feedback + negative_feedback
+
+    satisfaction = (
+        round(
+            5 * positive_feedback / feedback_total,
+            1,
+        )
+        if feedback_total
+        else 0.0
+    )
 
     conversations = (
         await session.scalars(
