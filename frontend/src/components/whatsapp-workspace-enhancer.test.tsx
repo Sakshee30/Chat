@@ -86,6 +86,7 @@ describe('Interactive channel workspace', () => {
       agentId: agent.id,
       message: 'Can you help me?',
       language: 'English',
+      visitorId: 'workspace-whatsapp-test-preview',
     }), expect.any(AbortSignal));
   });
 
@@ -107,6 +108,7 @@ describe('Interactive channel workspace', () => {
     const user = userEvent.setup();
     apiMocks.streamChat.mockImplementation(() => stream([
       { type: 'start', conversationId: 'instagram-preview', messageId: 'preview-message' },
+      { type: 'user_translation', content: 'नमस्ते' },
       { type: 'token', content: 'नमस्ते! मैं आपकी मदद कर सकता हूँ।' },
       { type: 'done', conversationId: 'instagram-preview' },
     ]));
@@ -121,11 +123,40 @@ describe('Interactive channel workspace', () => {
     await user.type(input, 'hello');
     await user.click(screen.getByRole('button', { name: 'Send test message' }));
 
+    expect(await screen.findByText('नमस्ते')).toBeInTheDocument();
     expect(await screen.findByText('नमस्ते! मैं आपकी मदद कर सकता हूँ।')).toBeInTheDocument();
     expect(apiMocks.streamChat).toHaveBeenCalledWith(expect.objectContaining({
       agentId: agent.id,
       language: 'Hindi',
-      visitorId: 'workspace-instagram-preview',
+      visitorId: 'workspace-instagram-test-preview',
+    }), expect.any(AbortSignal));
+  });
+
+  it('keeps Live clickable for Instagram even without a provider integration', async () => {
+    const user = userEvent.setup();
+    apiMocks.integrationsList.mockResolvedValue([]);
+    apiMocks.conversationsList.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50 });
+    apiMocks.streamChat.mockImplementation(() => stream([
+      { type: 'start', conversationId: 'instagram-live-preview', messageId: 'preview-message' },
+      { type: 'token', content: 'Live preview reply' },
+      { type: 'done', conversationId: 'instagram-live-preview' },
+    ]));
+
+    render(<InteractiveChannelWorkspace agentId={agent.id} channel="instagram" language="English" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Live' }));
+    expect(await screen.findByText(/Live preview · English/)).toBeInTheDocument();
+
+    const input = screen.getByLabelText('Live channel reply');
+    expect(input).not.toBeDisabled();
+    await user.type(input, 'Show me the live preview');
+    await user.click(screen.getByRole('button', { name: 'Send live reply' }));
+
+    expect(await screen.findByText('Live preview reply')).toBeInTheDocument();
+    expect(apiMocks.streamChat).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: agent.id,
+      message: 'Show me the live preview',
+      visitorId: 'workspace-instagram-live-preview',
     }), expect.any(AbortSignal));
   });
 });
