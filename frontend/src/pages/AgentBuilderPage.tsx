@@ -5,12 +5,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { WidgetPreview } from '@/components/chat-widget';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
+import { localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
+import { AgentDeploymentPreview } from '@/pages/DeployPage';
 import type { Agent, AgentPatch, KnowledgeKind, KnowledgeSource } from '@/types';
 
 const tabs = [
@@ -48,10 +49,21 @@ export function AgentBuilderPage() {
         {activeTab === 'settings' ? <SettingsPanel agent={agent} update={update} onSave={() => void save()} saving={saving} dirty={dirty} /> : null}
         {activeTab === 'embeddings' ? <EmbeddingsPanel agent={agent} /> : null}
       </section>
-      <WidgetPreview agent={agent} />
+      <BuilderAgentPreview agent={agent} />
     </div>
     <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete this agent?" description="This action cannot be undone." size="sm" footer={<><Button variant="secondary" onClick={() => setDeleteOpen(false)}>Cancel</Button><Button variant="danger" icon={Trash2} onClick={() => void remove()}>Delete forever</Button></>}><p className="modal-warning"><AlertTriangle /> All deployments of <strong>{agent.name}</strong> will stop responding immediately.</p></Modal>
   </div>;
+}
+
+const channelNames: Record<string, string> = { website: 'Website widget', whatsapp: 'WhatsApp', instagram: 'Instagram', facebook: 'Facebook / Meta', slack: 'Slack', teams: 'Microsoft Teams', api: 'Developer API', notion: 'Notion', zapier: 'Zapier' };
+
+function BuilderAgentPreview({ agent }: { agent: Agent }) {
+  const channel = agent.appearance.deploymentChannel ?? 'website';
+  return <aside className="widget-preview agent-template-preview">
+    <div className="preview-toolbar"><span><i className="status-dot status-dot--success" /> {channelNames[channel] ?? 'Website widget'} preview</span></div>
+    <div className="deploy-preview__stage deploy-preview__stage--mobile"><AgentDeploymentPreview agent={agent} integrationId={channel} /></div>
+    <p>The duplicate keeps this channel template in its workspace.</p>
+  </aside>;
 }
 
 interface PanelProps { agent: Agent; update: (patch: AgentPatch) => void; onSave: () => void; saving: boolean; dirty: boolean }
@@ -62,7 +74,7 @@ function InstructionsPanel({ agent, update, onSave, saving, dirty }: PanelProps)
     <div className="builder-heading"><span className="builder-heading__icon"><FileText /></span><div><h2>Instructions</h2><p>Define the job, boundaries, and voice of your AI agent.</p></div></div>
     <div className="hint-card"><WandSparkles /><div><strong>Write instructions like a great onboarding brief</strong><p>Give the agent a clear role, trusted sources, response style, and what to do when it cannot answer.</p></div><button>View examples <ExternalLink /></button></div>
     <Card className="editor-card"><div className="editor-card__heading"><div><h3>Core instructions</h3><p>These rules guide every response.</p></div><Badge tone="brand">Always active</Badge></div><textarea className="instructions-editor" value={agent.instructions} onChange={(event) => update({ instructions: event.target.value.slice(0, maxLength) })} placeholder="You are a helpful expert…" rows={17} /><div className="editor-footer"><span>{agent.instructions.length.toLocaleString()} / {maxLength.toLocaleString()}</span><span><Check /> Auto-saved locally while editing</span></div></Card>
-    <Card className="behavior-card"><div className="editor-card__heading"><div><h3>Voice & language</h3><p>Keep answers consistent with your brand.</p></div></div><div className="two-fields"><Field label="Response tone" htmlFor="tone"><select id="tone" value={agent.tone} onChange={(event) => update({ tone: event.target.value as Agent['tone'] })}><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="concise">Concise</option><option value="empathetic">Empathetic</option><option value="playful">Playful</option></select></Field><Field label="Primary language" htmlFor="language"><select id="language" value={agent.language} onChange={(event) => update({ language: event.target.value })}><option>English</option><option>Hindi</option><option>Spanish</option><option>French</option><option>German</option><option>Arabic</option></select></Field></div></Card>
+    <Card className="behavior-card"><div className="editor-card__heading"><div><h3>Voice & language</h3><p>The selected language controls every visitor-facing label, starter question, and AI response.</p></div></div><div className="two-fields"><Field label="Response tone" htmlFor="tone"><select id="tone" value={agent.tone} onChange={(event) => update({ tone: event.target.value as Agent['tone'] })}><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="concise">Concise</option><option value="empathetic">Empathetic</option><option value="playful">Playful</option></select></Field><Field label="Primary language" htmlFor="language"><select id="language" value={agent.language} onChange={(event) => { const language = event.target.value; update({ language, appearance: localizeAgentAppearance(agent.appearance, language) }); }}>{supportedWidgetLanguages.map((language) => <option key={language}>{language}</option>)}</select></Field></div></Card>
     <SaveBar dirty={dirty} saving={saving} onSave={onSave} />
   </div>;
 }

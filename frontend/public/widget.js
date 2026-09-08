@@ -39,17 +39,25 @@
     const color = configuredColor || (/^#[0-9a-f]{6}$/i.test(appearance.primaryColor || '') ? appearance.primaryColor : '#146cf6');
     const launcherStyle = ['spark', 'bubble', 'avatar'].includes(appearance.launcherStyle) ? appearance.launcherStyle : 'spark';
     const avatar = typeof bootstrap.avatar === 'string' && bootstrap.avatar.trim() ? bootstrap.avatar.trim() : 'N';
+    const numberInRange = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : fallback;
+    const widgetWidth = numberInRange(appearance.widgetWidth, 380, 320, 600);
+    const widgetHeight = numberInRange(appearance.widgetHeight, 680, 480, 900);
+    const pageMargin = numberInRange(appearance.pageMargin, 24, 8, 64);
+    const cornerRadius = numberInRange(appearance.cornerRadius, 24, 0, 32);
+    const zIndex = numberInRange(appearance.zIndex, 99999, 1, 2147483647);
+    const shadow = appearance.elevatedShadow === false ? 'none' : '0 22px 70px rgba(15,29,55,.24)';
+    const fontFamily = ['Inter', 'DM Sans', 'Manrope', 'System UI'].includes(appearance.fontFamily) ? appearance.fontFamily : 'Inter';
 
     const container = document.createElement('div');
     container.id = `northstar-widget-${agentId}`;
-    container.style.cssText = `position:fixed;${side}:24px;bottom:24px;z-index:2147483000;font-family:system-ui,sans-serif`;
+    container.style.cssText = `position:fixed;${side}:${pageMargin}px;bottom:${pageMargin}px;z-index:${zIndex};font-family:${fontFamily},system-ui,sans-serif`;
 
     const frame = document.createElement('iframe');
     frame.title = `Chat with ${typeof bootstrap.name === 'string' ? bootstrap.name : 'AI support'}`;
     frame.loading = 'lazy';
     frame.allow = 'clipboard-write; microphone';
     frame.referrerPolicy = 'strict-origin-when-cross-origin';
-    frame.style.cssText = 'display:none;width:min(380px,calc(100vw - 32px));height:min(680px,calc(100vh - 112px));border:0;border-radius:26px;background:#fff;box-shadow:0 22px 70px rgba(15,29,55,.24)';
+    frame.style.cssText = `display:none;width:min(${widgetWidth}px,calc(100vw - 32px));height:min(${widgetHeight}px,calc(100vh - 112px));border:0;border-radius:${cornerRadius}px;background:#fff;box-shadow:${shadow}`;
 
     const launcher = document.createElement('button');
     launcher.type = 'button';
@@ -132,6 +140,7 @@
 
     container.append(frame, launcher);
     document.body.append(container);
+    if (appearance.openOnPageLoad === true) launcher.click();
   };
 
   void load().catch((error) => {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -23,6 +23,11 @@ from northstar_api.models import (
 )
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
+from northstar_api.services.localization import (
+    localized_no_evidence,
+    localized_provider_fallback,
+    localized_question_fallback,
+)
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
@@ -35,6 +40,7 @@ class PreparedChat:
     assistant_message_id: UUID
     answer: str
     evidence: list[Evidence]
+    display_question: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +112,9 @@ class ChatCoordinator:
             message_fingerprint=message_fingerprint,
             show_citations=show_citations,
         )
+        display_question = await self._display_question(agent, raw_message)
         if isinstance(reservation, PreparedChat):
-            return reservation
+            return replace(reservation, display_question=display_question)
         try:
             conversation_history = await self._recent_history(session, reservation)
             retrieval_query = _retrieval_query(message, conversation_history)
@@ -127,7 +134,7 @@ class ChatCoordinator:
             # Retrieval is read-only; release its transaction before provider I/O.
             await session.commit()
             if not evidence:
-                answer = "I don't have enough verified information to answer that."
+                answer = localized_no_evidence(agent.language)
                 CHAT_REQUESTS.labels("refused_no_evidence").inc()
             else:
                 evidence_block = "\n\n".join(
@@ -152,7 +159,11 @@ class ChatCoordinator:
                         raise HTTPException(
                             status_code=503, detail="AI provider is temporarily unavailable"
                         ) from None
-                    answer = _evidence_fallback(evidence[0])
+                    answer = (
+                        _evidence_fallback(evidence[0])
+                        if agent.language == "English"
+                        else localized_provider_fallback(agent.language)
+                    )
                     CHAT_REQUESTS.labels("grounded_fallback").inc()
 
             latency_ms = round((time.perf_counter() - started) * 1000)
@@ -172,7 +183,18 @@ class ChatCoordinator:
             await self._mark_reservation_failed(session, tenant_id, reservation)
             raise
         CHAT_DURATION.observe(time.perf_counter() - started)
-        return prepared
+        return replace(prepared, display_question=display_question)
+
+    async def _display_question(self, agent: Agent, question: str) -> str:
+        if agent.language == "English":
+            return question
+        translator = getattr(self.model, "translate_for_display", None)
+        if translator is None:
+            return localized_question_fallback(question, agent.language)
+        try:
+            return await translator(question, agent.language, agent.model_profile)
+        except ModelUnavailableError:
+            return localized_question_fallback(question, agent.language)
 
     async def _reserve_exchange(
         self,

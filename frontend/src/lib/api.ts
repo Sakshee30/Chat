@@ -1,8 +1,9 @@
 import { demoAgents, demoAnalytics, demoConversations, demoIntegrations, demoKnowledge, demoLeads } from '@/lib/demo-data';
 import { clone, readStorage, writeStorage } from '@/lib/storage';
+import { localizeAgentAppearance } from '@/lib/widget-localization';
 import type {
   Agent, AgentPatch, AnalyticsSummary, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationState,
-  CompleteWhatsAppSignupInput, CreateAgentInput, Integration, KnowledgeKind, KnowledgeSource, Lead, PageResult, Session,
+  CompleteWhatsAppSignupInput, CreateAgentInput, DuplicateAgentInput, Integration, KnowledgeKind, KnowledgeSource, Lead, PageResult, Session,
   WhatsAppBootstrap, WhatsAppConnection, WhatsAppStatus, WidgetBootstrap, WidgetSession,
 } from '@/types';
 
@@ -13,6 +14,7 @@ const AGENTS_KEY = 'northstar.agents';
 const KNOWLEDGE_KEY = 'northstar.knowledge';
 const CONVERSATIONS_KEY = 'northstar.conversations';
 const LEADS_KEY = 'northstar.leads';
+const INTEGRATIONS_KEY = 'northstar.integrations';
 export const AUTH_SESSION_EVENT = 'northstar:session-changed';
 
 interface ApiRequestInit extends RequestInit {
@@ -139,6 +141,11 @@ function demoAgentList(): Agent[] { return readStorage(AGENTS_KEY, clone(demoAge
 function demoKnowledgeList(): KnowledgeSource[] { return readStorage(KNOWLEDGE_KEY, clone(demoKnowledge)); }
 function demoConversationList(): Conversation[] { return readStorage(CONVERSATIONS_KEY, clone(demoConversations)); }
 function demoLeadList(): Lead[] { return readStorage(LEADS_KEY, clone(demoLeads)); }
+function demoIntegrationList(): Integration[] {
+  const saved = readStorage<Integration[]>(INTEGRATIONS_KEY, []);
+  const states = new Map(saved.map((item) => [item.id, item.connected]));
+  return clone(demoIntegrations).map((item) => ({ ...item, connected: states.get(item.id) ?? item.connected }));
+}
 
 interface UploadPresignResponse {
   method: 'POST';
@@ -191,10 +198,11 @@ async function* parseChatEvents(response: Response): AsyncGenerator<ChatStreamEv
   }
 }
 
-async function* demoChatEvents(question: string, currentConversationId?: string, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+async function* demoChatEvents(question: string, currentConversationId?: string, signal?: AbortSignal, language = 'English'): AsyncGenerator<ChatStreamEvent> {
   const conversationId = currentConversationId ?? id('conv');
   yield { type: 'start', conversationId, messageId: id('msg') };
-  const answer = demoAnswer(question);
+  yield { type: 'user_translation', content: demoDisplayQuestion(question, language) };
+  const answer = demoAnswer(question, language);
   for (const word of answer.split(' ')) {
     if (signal?.aborted) return;
     await pause(24 + Math.random() * 28);
@@ -206,11 +214,13 @@ async function* demoChatEvents(question: string, currentConversationId?: string,
 
 export function agentFromWidgetBootstrap(value: WidgetBootstrap): Agent {
   const now = new Date().toISOString();
+  const language = value.language ?? value.appearance.interfaceLanguage ?? 'English';
+  const appearance = value.appearance.interfaceLanguage === language ? value.appearance : localizeAgentAppearance(value.appearance, language);
   return {
     id: value.agentId, publicId: value.publicId, name: value.name, avatar: value.avatar,
-    description: 'Grounded AI assistant', instructions: '', status: 'active', tone: 'friendly', language: 'English',
+    description: 'Grounded AI assistant', instructions: '', status: 'active', tone: 'friendly', language,
     conversations: 0, resolutionRate: 0, knowledgeCount: 0, createdAt: now, lastUpdated: now,
-    appearance: value.appearance,
+    appearance,
     model: { provider: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', temperature: 1, topP: 0.95, maxTokens: 16384, enableThinking: true, citationMode: 'when-available' },
     security: { allowedDomains: [], rateLimitPerMinute: 30, collectEmail: value.collectEmail, maskSensitiveData: true, retentionDays: 90 },
   };
@@ -253,7 +263,12 @@ export const api = {
     list: () => withFallback(() => request<Agent[]>('/agents'), async () => { await pause(); return demoAgentList(); }),
     get: (agentId: string) => withFallback(() => request<Agent>(`/agents/${agentId}`), async () => { await pause(100); const found = demoAgentList().find((item) => item.id === agentId); if (!found) throw new ApiError('Agent not found', 404); return found; }),
     create: (input: CreateAgentInput) => withFallback(() => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(input) }), async () => {
-      await pause(); const base = clone(demoAgents[0]!); const createdId = id('agent'); const created: Agent = { ...base, id: createdId, publicId: id('public'), name: input.name, description: input.description, status: 'draft', conversations: 0, resolutionRate: 0, knowledgeCount: 0, createdAt: new Date().toISOString(), lastUpdated: new Date().toISOString() };
+      await pause(); const base = clone(demoAgents[0]!); const createdId = id('agent'); const language = input.language ?? 'English'; const created: Agent = { ...base, id: createdId, publicId: id('public'), name: input.name, description: input.description, instructions: templateInstructions(input.template), tone: input.tone ?? 'friendly', language, status: 'draft', conversations: 0, resolutionRate: 0, knowledgeCount: 0, createdAt: new Date().toISOString(), lastUpdated: new Date().toISOString(), appearance: { ...localizeAgentAppearance(base.appearance, language), deploymentChannel: input.deploymentChannel ?? 'website' } };
+      const items = demoAgentList(); items.unshift(created); writeStorage(AGENTS_KEY, items); return created;
+    }),
+    duplicate: (agentId: string, input: DuplicateAgentInput) => withFallback(() => request<Agent>(`/agents/${agentId}/duplicate`, { method: 'POST', body: JSON.stringify(input) }), async () => {
+      await pause(); const source = demoAgentList().find((item) => item.id === agentId); if (!source) throw new ApiError('Agent not found', 404);
+      const created: Agent = { ...clone(source), id: id('agent'), publicId: id('public'), name: input.name, status: 'draft', conversations: 0, resolutionRate: 0, knowledgeCount: 0, createdAt: new Date().toISOString(), lastUpdated: new Date().toISOString(), appearance: { ...clone(source.appearance), deploymentChannel: input.deploymentChannel } };
       const items = demoAgentList(); items.unshift(created); writeStorage(AGENTS_KEY, items); return created;
     }),
     update: (agentId: string, patch: AgentPatch) => withFallback(() => request<Agent>(`/agents/${agentId}`, { method: 'PATCH', body: JSON.stringify(patch) }), async () => {
@@ -302,8 +317,11 @@ export const api = {
   },
   analytics: { summary: () => withFallback(() => request<AnalyticsSummary>('/analytics/summary'), async () => { await pause(); return clone(demoAnalytics); }) },
   integrations: {
-    list: () => withFallback(() => request<Integration[]>('/integrations'), async () => { await pause(); return clone(demoIntegrations); }),
-    setConnected: (integrationId: string, connected: boolean) => withFallback(() => request<Integration>(`/integrations/${integrationId}`, { method: 'PATCH', body: JSON.stringify({ connected }) }), async () => { await pause(); const result = clone(demoIntegrations.find((item) => item.id === integrationId)!); result.connected = connected; return result; }),
+    list: () => withFallback(() => request<Integration[]>('/integrations'), async () => { await pause(); return demoIntegrationList(); }),
+    setConnected: (integrationId: string, connected: boolean) => withFallback(() => request<Integration>(`/integrations/${integrationId}`, { method: 'PATCH', body: JSON.stringify({ connected }) }), async () => {
+      await pause(); const items = demoIntegrationList(); const index = items.findIndex((item) => item.id === integrationId); if (index < 0) throw new ApiError('Integration not found', 404);
+      const result = { ...items[index]!, connected }; items[index] = result; writeStorage(INTEGRATIONS_KEY, items); return result;
+    }),
     whatsapp: {
       bootstrap: () => request<WhatsAppBootstrap>('/integrations/whatsapp/bootstrap'),
       status: () => request<WhatsAppStatus>('/integrations/whatsapp/status'),
@@ -338,7 +356,7 @@ export const api = {
     createHostedSession: (publicId: string) => withFallback(() => request<WidgetSession>(`/widget/${publicId}/hosted/sessions`, {
       method: 'POST', body: JSON.stringify({ pageUrl: window.location.href }), skipAuth: true, skipRefresh: true,
     }), async () => ({ conversationId: id('conv'), conversationPublicId: id('public-conv'), sessionToken: id('widget-token'), expiresAt: new Date(Date.now() + 3_600_000).toISOString() })),
-    async *streamChat(input: { conversationId: string; sessionToken: string; message: string }, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+    async *streamChat(input: { conversationId: string; sessionToken: string; message: string; language?: string }, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
       try {
         const response = await fetch(`${API_URL}/widget/sessions/${input.conversationId}/messages`, {
           method: 'POST', signal,
@@ -351,29 +369,97 @@ export const api = {
         if (signal?.aborted) return;
         if (!DEMO_MODE) { yield { type: 'error', message: error instanceof Error ? error.message : 'Chat unavailable' }; return; }
       }
-      yield* demoChatEvents(input.message, input.conversationId, signal);
+      yield* demoChatEvents(input.message, input.conversationId, signal, input.language);
     },
   },
-  async *streamChat(input: ChatStreamRequest, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+  async *streamChat(input: ChatStreamRequest & { language?: string }, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+    const { language, ...requestInput } = input;
     try {
       const active = session();
-      const response = await fetch(`${API_URL}/chat/stream`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}) }, body: JSON.stringify(input) });
+      const response = await fetch(`${API_URL}/chat/stream`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}) }, body: JSON.stringify(requestInput) });
       yield* parseChatEvents(response);
       return;
     } catch (error) {
       if (signal?.aborted) return;
       if (!DEMO_MODE) { yield { type: 'error', message: error instanceof Error ? error.message : 'Chat unavailable' }; return; }
     }
-    yield* demoChatEvents(input.message, input.conversationId, signal);
+    const selectedLanguage = language ?? demoAgentList().find((agent) => agent.id === input.agentId)?.language ?? 'English';
+    yield* demoChatEvents(input.message, input.conversationId, signal, selectedLanguage);
   },
 };
 
-function demoAnswer(question: string): string {
+function templateInstructions(template?: string): string {
+  if (template === 'support') return 'Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing.';
+  if (template === 'lead') return 'Qualify each lead with one useful question at a time, understand their needs, and recommend the appropriate next step.';
+  return 'Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable.';
+}
+
+function demoDisplayQuestion(question: string, language = 'English'): string {
+  const trimmed = question.trim();
+  if (!trimmed || language === 'English') return trimmed;
+
+  const targetScript: Partial<Record<string, RegExp>> = {
+    Hindi: /[\u0900-\u097f]/,
+    Arabic: /[\u0600-\u06ff]/,
+  };
+  if (targetScript[language]?.test(trimmed)) return trimmed;
+
+  const normalized = trimmed.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  const phrases: Record<string, Record<string, string>> = {
+    Hindi: {
+      hi: 'नमस्ते', hii: 'नमस्ते', hello: 'नमस्ते',
+      'what services do you offer': 'आप कौन-सी सेवाएँ देते हैं?',
+      'how can i contact support': 'मैं सहायता से कैसे संपर्क करूँ?',
+      'tell me about your plans': 'अपनी योजनाओं के बारे में बताएँ।',
+      'what is cse': 'सीएसई क्या है?',
+      'how are you': 'आप कैसे हैं?',
+    },
+    Spanish: {
+      hi: 'Hola', hii: 'Hola', hello: 'Hola',
+      'what services do you offer': '¿Qué servicios ofrecen?',
+      'how can i contact support': '¿Cómo puedo contactar con soporte?',
+      'tell me about your plans': 'Cuéntame sobre sus planes.',
+      'what is cse': '¿Qué es CSE?', 'how are you': '¿Cómo estás?',
+    },
+    French: {
+      hi: 'Bonjour', hii: 'Bonjour', hello: 'Bonjour',
+      'what services do you offer': 'Quels services proposez-vous ?',
+      'how can i contact support': 'Comment puis-je contacter le support ?',
+      'tell me about your plans': 'Parlez-moi de vos offres.',
+      'what is cse': "Qu'est-ce que CSE ?", 'how are you': 'Comment allez-vous ?',
+    },
+    German: {
+      hi: 'Hallo', hii: 'Hallo', hello: 'Hallo',
+      'what services do you offer': 'Welche Dienstleistungen bieten Sie an?',
+      'how can i contact support': 'Wie kann ich den Support kontaktieren?',
+      'tell me about your plans': 'Erzählen Sie mir von Ihren Tarifen.',
+      'what is cse': 'Was ist CSE?', 'how are you': 'Wie geht es Ihnen?',
+    },
+    Arabic: {
+      hi: 'مرحبًا', hii: 'مرحبًا', hello: 'مرحبًا',
+      'what services do you offer': 'ما الخدمات التي تقدمونها؟',
+      'how can i contact support': 'كيف يمكنني التواصل مع الدعم؟',
+      'tell me about your plans': 'أخبرني عن خططكم.',
+      'what is cse': 'ما هو CSE؟', 'how are you': 'كيف حالك؟',
+    },
+  };
+
+  return phrases[language]?.[normalized] ?? trimmed;
+}
+
+function demoAnswer(question: string, language = 'English'): string {
   const value = question.toLowerCase();
-  if (value.includes('price') || value.includes('plan')) return 'Our plans scale with your team and conversation volume. The Growth plan adds analytics, multiple agents, and shared inboxes. I can help narrow it down if you tell me your team size.';
-  if (value.includes('contact') || value.includes('support')) return 'You can reach the support team from the Help menu or ask me to escalate this conversation. A teammate will receive the transcript, so you will not need to repeat yourself.';
-  if (value.includes('service') || value.includes('offer')) return 'Northstar helps teams create accurate AI support agents, train them on trusted sources, review conversations, and deploy them to websites or connected channels.';
-  return 'I found the most relevant guidance in the connected knowledge base. Based on your question, the best next step is to open the agent workspace, confirm its knowledge sources are current, and test the answer in the live preview. Would you like the steps?';
+  const kind = value.includes('price') || value.includes('plan') ? 'plans' : value.includes('contact') || value.includes('support') ? 'support' : value.includes('service') || value.includes('offer') ? 'services' : 'default';
+  const answers: Record<string, Record<string, string>> = {
+    English: { plans: 'Our plans scale with your team and conversation volume. Tell me your team size and I can help you choose.', support: 'You can contact the support team from the Help menu or ask me to escalate this conversation.', services: 'Northstar helps teams create accurate AI agents, train them on trusted sources, review conversations, and deploy them across connected channels.', default: 'I found relevant guidance in the connected knowledge base. Check that the agent knowledge is current, then test the answer in the live preview. Would you like the steps?' },
+    Hindi: { plans: 'हमारी योजनाएँ आपकी टीम और बातचीत की मात्रा के अनुसार बढ़ती हैं। अपनी टीम का आकार बताएं, मैं सही योजना चुनने में मदद करूँगा।', support: 'आप सहायता मेनू से सपोर्ट टीम से संपर्क कर सकते हैं या मुझसे इस बातचीत को आगे भेजने के लिए कह सकते हैं।', services: 'नॉर्थस्टार टीमों को सटीक एआई एजेंट बनाने, विश्वसनीय स्रोतों से प्रशिक्षित करने, बातचीत की समीक्षा करने और जुड़े चैनलों पर तैनात करने में मदद करता है।', default: 'मुझे जुड़े ज्ञान आधार में उपयोगी जानकारी मिली है। एजेंट का ज्ञान अद्यतन है या नहीं जाँचें, फिर लाइव पूर्वावलोकन में जवाब का परीक्षण करें। क्या आप चरण जानना चाहेंगे?' },
+    Spanish: { plans: 'Nuestros planes crecen con tu equipo y el volumen de conversaciones. Dime el tamaño de tu equipo y te ayudaré a elegir.', support: 'Puedes contactar al equipo de soporte desde el menú Ayuda o pedirme que derive esta conversación.', services: 'Northstar ayuda a crear agentes de IA precisos, entrenarlos con fuentes fiables, revisar conversaciones y desplegarlos en canales conectados.', default: 'Encontré información útil en la base de conocimiento conectada. Comprueba que el conocimiento esté actualizado y prueba la respuesta en la vista previa. ¿Quieres ver los pasos?' },
+    French: { plans: 'Nos offres évoluent avec votre équipe et votre volume de conversations. Indiquez-moi la taille de votre équipe pour choisir.', support: 'Vous pouvez contacter le support depuis le menu Aide ou me demander de transmettre cette conversation.', services: 'Northstar aide les équipes à créer des agents IA précis, à les former avec des sources fiables, à examiner les conversations et à les déployer sur plusieurs canaux.', default: 'J’ai trouvé des informations utiles dans la base de connaissances connectée. Vérifiez qu’elle est à jour, puis testez la réponse dans l’aperçu. Voulez-vous les étapes ?' },
+    German: { plans: 'Unsere Tarife wachsen mit Ihrem Team und Gesprächsvolumen. Nennen Sie mir Ihre Teamgröße, dann helfe ich bei der Auswahl.', support: 'Sie erreichen den Support über das Hilfe-Menü oder können mich bitten, dieses Gespräch weiterzuleiten.', services: 'Northstar hilft Teams, präzise KI-Agenten zu erstellen, mit verlässlichen Quellen zu trainieren, Gespräche zu prüfen und über verbundene Kanäle bereitzustellen.', default: 'Ich habe passende Informationen in der verbundenen Wissensbasis gefunden. Prüfen Sie deren Aktualität und testen Sie die Antwort in der Live-Vorschau. Möchten Sie die Schritte sehen?' },
+    Arabic: { plans: 'تتوسع خططنا حسب حجم فريقك وعدد المحادثات. أخبرني بحجم فريقك وسأساعدك في الاختيار.', support: 'يمكنك التواصل مع فريق الدعم من قائمة المساعدة أو أن تطلب مني تصعيد هذه المحادثة.', services: 'يساعد نورث ستار الفرق على إنشاء وكلاء ذكاء اصطناعي دقيقين وتدريبهم على مصادر موثوقة ومراجعة المحادثات ونشرهم عبر القنوات المتصلة.', default: 'وجدت معلومات مفيدة في قاعدة المعرفة المتصلة. تحقق من تحديث معرفة الوكيل ثم اختبر الإجابة في المعاينة المباشرة. هل تريد الخطوات؟' },
+  };
+  const selected = answers[language] ?? answers.English!;
+  return selected[kind] ?? selected.default!;
 }
 
 export const apiConfig = { baseUrl: API_URL, demoMode: DEMO_MODE } as const;

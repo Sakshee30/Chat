@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Annotated
 from uuid import UUID
 
@@ -11,15 +12,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
-from northstar_api.models import Agent, AgentStatus, Conversation, ConversationState, KnowledgeSource
+from northstar_api.models import (
+    Agent,
+    AgentStatus,
+    Conversation,
+    ConversationState,
+    KnowledgeSource,
+    default_appearance,
+)
 from northstar_api.schemas import (
     AgentAppearance,
     AgentCreate,
+    AgentDuplicate,
     AgentModelProfile,
     AgentOut,
     AgentPatch,
     AgentSecurity,
 )
+from northstar_api.services.localization import localized_appearance
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -99,12 +109,26 @@ async def list_agents(principal: CurrentPrincipal, session: DB) -> list[AgentOut
 
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session: DB) -> AgentOut:
+    appearance = default_appearance()
+    appearance.update(localized_appearance(payload.language))
+    appearance["deploymentChannel"] = payload.deployment_channel
+    instructions = {
+        "support": "Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing.",
+        "lead": "Qualify each lead with one useful question at a time, understand their needs, and recommend the appropriate next step.",
+    }.get(
+        payload.template or "",
+        "Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable.",
+    )
     agent = Agent(
-    tenant_id=principal.tenant_id,
-    name=payload.name.strip(),
-    description=payload.description.strip(),
-    status=AgentStatus.ACTIVE,
-)
+        tenant_id=principal.tenant_id,
+        name=payload.name.strip(),
+        description=payload.description.strip(),
+        instructions=instructions,
+        status=AgentStatus.ACTIVE,
+        tone=payload.tone,
+        language=payload.language,
+        appearance=appearance,
+    )
     session.add(agent)
     try:
         await session.flush()
@@ -126,6 +150,49 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
 @router.get("/{agent_id}", response_model=AgentOut)
 async def get_agent(agent_id: UUID, principal: CurrentPrincipal, session: DB) -> AgentOut:
     return await agent_response(session, await scoped_agent(session, principal.tenant_id, agent_id))
+
+
+@router.post("/{agent_id}/duplicate", response_model=AgentOut, status_code=201)
+async def duplicate_agent(
+    agent_id: UUID, payload: AgentDuplicate, principal: AdminPrincipal, session: DB
+) -> AgentOut:
+    source = await scoped_agent(session, principal.tenant_id, agent_id)
+    appearance = deepcopy(source.appearance)
+    appearance["deploymentChannel"] = payload.deployment_channel
+    duplicate = Agent(
+        tenant_id=principal.tenant_id,
+        name=payload.name.strip(),
+        description=source.description,
+        instructions=source.instructions,
+        status=AgentStatus.DRAFT,
+        tone=source.tone,
+        language=source.language,
+        avatar=source.avatar,
+        appearance=appearance,
+        model_profile=deepcopy(source.model_profile),
+        security=deepcopy(source.security),
+    )
+    session.add(duplicate)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="An agent with this name already exists") from None
+    enqueue_event(
+        session,
+        tenant_id=principal.tenant_id,
+        aggregate_type="agent",
+        aggregate_id=duplicate.id,
+        event_type="agent.duplicated.v1",
+        payload={
+            "agentId": str(duplicate.id),
+            "sourceAgentId": str(source.id),
+            "deploymentChannel": payload.deployment_channel,
+        },
+    )
+    await session.commit()
+    await session.refresh(duplicate)
+    return await agent_response(session, duplicate)
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
@@ -151,6 +218,10 @@ async def update_agent(
         assert payload.security is not None
         agent.security = payload.security.model_dump(by_alias=True)
         patch.pop("security")
+    if "language" in patch and "appearance" not in payload.model_fields_set:
+        next_appearance = deepcopy(agent.appearance)
+        next_appearance.update(localized_appearance(str(patch["language"])))
+        agent.appearance = next_appearance
     for name, value in patch.items():
         setattr(agent, name, value)
     enqueue_event(

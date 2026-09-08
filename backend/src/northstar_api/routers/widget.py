@@ -123,6 +123,7 @@ def _widget_bootstrap(agent: Agent, session_endpoint: str) -> WidgetBootstrap:
         public_id=agent.public_id,
         name=agent.name,
         avatar=agent.avatar,
+        language=agent.language,
         appearance=AgentAppearance.model_validate(agent.appearance),
         collect_email=bool(agent.security.get("collectEmail", False)),
         session_endpoint=session_endpoint,

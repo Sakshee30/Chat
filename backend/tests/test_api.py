@@ -234,6 +234,7 @@ async def test_agent_knowledge_and_grounded_sse(client: AsyncClient, auth_header
     assert unrelated_answer == "I don't have enough verified information to answer that."
     assert not any(item["type"] == "citation" for item in unrelated_payloads)
 
+
     origin_headers = {"Origin": "http://testserver"}
     bootstrap = await client.get(
         f"/api/v1/widget/{agent['publicId']}/bootstrap",
@@ -309,6 +310,97 @@ async def test_agent_knowledge_and_grounded_sse(client: AsyncClient, auth_header
     data = conversations.json()
     assert {"items", "total", "page", "pageSize"} <= data.keys()
     assert data["total"] >= 1
+
+
+async def test_duplicate_agent_preserves_template_and_selected_channel(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    created = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={"name": "Duplicate Source Agent", "description": "Original template"},
+    )
+    assert created.status_code == 201, created.text
+    source = created.json()
+    appearance = {
+        **source["appearance"],
+        "primaryColor": "#705cf6",
+        "welcomeTitle": "A copied welcome",
+        "suggestedQuestions": ["First copied question"],
+        "deploymentChannel": "website",
+    }
+    updated = await client.patch(
+        f"/api/v1/agents/{source['id']}",
+        headers=auth_headers,
+        json={
+            "instructions": "Preserve these instructions.",
+            "tone": "professional",
+            "language": "Hindi",
+            "avatar": "DS",
+            "appearance": appearance,
+            "model": source["model"],
+            "security": source["security"],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    source = updated.json()
+
+    response = await client.post(
+        f"/api/v1/agents/{source['id']}/duplicate",
+        headers=auth_headers,
+        json={"name": "Duplicate Target Agent", "deploymentChannel": "whatsapp"},
+    )
+
+    assert response.status_code == 201, response.text
+    duplicate = response.json()
+    assert duplicate["name"] == "Duplicate Target Agent"
+    assert duplicate["status"] == "draft"
+    assert duplicate["instructions"] == source["instructions"]
+    assert duplicate["tone"] == source["tone"]
+    assert duplicate["language"] == source["language"]
+    assert duplicate["avatar"] == source["avatar"]
+    assert duplicate["model"] == source["model"]
+    assert duplicate["security"] == source["security"]
+    assert duplicate["appearance"] == {
+        **source["appearance"],
+        "deploymentChannel": "whatsapp",
+    }
+
+
+async def test_agent_language_localizes_the_complete_visitor_experience(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    created = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "Hindi Guided Agent",
+            "description": "Guided setup test",
+            "template": "support",
+            "tone": "friendly",
+            "language": "Hindi",
+            "deploymentChannel": "whatsapp",
+        },
+    )
+    assert created.status_code == 201, created.text
+    agent = created.json()
+    assert agent["language"] == "Hindi"
+    assert agent["appearance"]["interfaceLanguage"] == "Hindi"
+    assert agent["appearance"]["deploymentChannel"] == "whatsapp"
+    assert agent["appearance"]["welcomeTitle"] == "मैं आपकी कैसे मदद कर सकता हूँ?"
+    assert agent["appearance"]["suggestedQuestions"][0] == "आप कौन-सी सेवाएँ देते हैं?"
+
+    updated = await client.patch(
+        f"/api/v1/agents/{agent['id']}",
+        headers=auth_headers,
+        json={"language": "Spanish"},
+    )
+    assert updated.status_code == 200, updated.text
+    localized = updated.json()
+    assert localized["language"] == "Spanish"
+    assert localized["appearance"]["interfaceLanguage"] == "Spanish"
+    assert localized["appearance"]["welcomeTitle"] == "¿Cómo puedo ayudarte?"
+    assert localized["appearance"]["suggestedQuestions"][0] == "¿Qué servicios ofrecen?"
 
 
 async def test_v1_alias_and_tenant_scoping(client: AsyncClient, auth_headers: dict[str, str]) -> None:

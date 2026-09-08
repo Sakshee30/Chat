@@ -88,6 +88,8 @@ export const demoIntegrations: Integration[] = [
   { id: 'website', name: 'Website widget', description: 'Add Northstar AI to any site with one snippet.', category: 'channel', icon: 'code', connected: true },
   { id: 'slack', name: 'Slack', description: 'Answer questions where your team already works.', category: 'channel', icon: 'hash', connected: false },
   { id: 'whatsapp', name: 'WhatsApp', description: 'Support customers through WhatsApp Business.', category: 'channel', icon: 'message', connected: false },
+  { id: 'facebook', name: 'Facebook Messenger', description: 'Deploy the agent to a Facebook Page inbox.', category: 'channel', icon: 'facebook', connected: false },
+  { id: 'instagram', name: 'Instagram', description: 'Answer customer messages from Instagram.', category: 'channel', icon: 'instagram', connected: false },
   { id: 'zapier', name: 'Zapier', description: 'Trigger workflows from conversations and events.', category: 'automation', icon: 'zap', connected: false },
   { id: 'notion', name: 'Notion', description: 'Continuously sync selected knowledge pages.', category: 'data', icon: 'book', connected: false },
   { id: 'api', name: 'Developer API', description: 'Build custom experiences with the REST and stream APIs.', category: 'developer', icon: 'terminal', connected: true },

@@ -3,17 +3,22 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '@/components/providers';
-import { demoAgents } from '@/lib/demo-data';
+import { demoAgents, demoIntegrations } from '@/lib/demo-data';
 import { DeployPage } from '@/pages/DeployPage';
 import type { Agent, AgentPatch } from '@/types';
 
 const apiMocks = vi.hoisted(() => ({
   list: vi.fn<() => Promise<Agent[]>>(),
   update: vi.fn<(agentId: string, patch: AgentPatch) => Promise<Agent>>(),
+  listIntegrations: vi.fn(),
+  setConnected: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
-  api: { agents: { list: apiMocks.list, update: apiMocks.update } },
+  api: {
+    agents: { list: apiMocks.list, update: apiMocks.update },
+    integrations: { list: apiMocks.listIntegrations, setConnected: apiMocks.setConnected },
+  },
 }));
 
 vi.mock('@/components/chat-widget', () => ({
@@ -30,6 +35,8 @@ describe('DeployPage', () => {
   beforeEach(() => {
     original = structuredClone(demoAgents[0]!);
     apiMocks.list.mockResolvedValue([original]);
+    apiMocks.listIntegrations.mockResolvedValue(structuredClone(demoIntegrations));
+    apiMocks.setConnected.mockImplementation(async (integrationId: string, connected: boolean) => ({ ...demoIntegrations.find((item) => item.id === integrationId)!, connected }));
     apiMocks.update.mockImplementation(async (_agentId, patch) => ({
       ...original,
       ...patch,
@@ -45,7 +52,9 @@ describe('DeployPage', () => {
 
     const heading = await screen.findByLabelText('Hero heading');
     const apply = screen.getByRole('button', { name: 'Apply' });
-    expect(apply).toBeDisabled();
+    const reset = screen.getByRole('button', { name: 'Reset changes' });
+    expect(apply).toBeEnabled();
+    expect(reset).toBeEnabled();
 
     await user.clear(heading);
     await user.type(heading, 'A sharper welcome');
@@ -63,12 +72,126 @@ describe('DeployPage', () => {
       },
       status: original.status,
     });
-    await waitFor(() => expect(apply).toBeDisabled());
+    await waitFor(() => expect(apply).toBeEnabled());
+    expect(reset).toBeEnabled();
+
+    await user.click(apply);
+    await user.click(reset);
+    expect(apiMocks.update).toHaveBeenCalledTimes(1);
+    expect(heading).toHaveValue('A sharper welcome');
 
     await user.clear(heading);
     await user.type(heading, 'Discard this');
-    await user.click(screen.getByRole('button', { name: 'Reset changes' }));
+    await user.click(reset);
     expect(heading).toHaveValue('A sharper welcome');
     expect(apiMocks.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists every created agent and switches the deployment preview', async () => {
+    const user = userEvent.setup();
+    const second = structuredClone(demoAgents[1]!);
+    apiMocks.list.mockResolvedValue([original, second]);
+    renderPage();
+
+    const selector = await screen.findByRole('combobox', { name: 'Select deploy agent' });
+    expect(selector).toHaveTextContent(original.name);
+    expect(selector).toHaveTextContent(second.name);
+
+    await user.selectOptions(selector, second.id);
+    expect(screen.getByTestId('widget-preview')).toHaveTextContent(second.appearance.welcomeTitle);
+  });
+
+  it('offers deployment channels and can enable Facebook from the dropdown', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const selector = await screen.findByRole('combobox', { name: 'Select deployment channel' });
+    expect(selector).toHaveTextContent('Website widget');
+    expect(selector).toHaveTextContent('WhatsApp');
+    expect(selector).toHaveTextContent('Facebook Messenger');
+    expect(selector).toHaveTextContent('Instagram');
+
+    await user.selectOptions(selector, 'facebook');
+    expect(screen.getByRole('heading', { name: 'Facebook Messenger', level: 2 })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Enable channel' }));
+    await waitFor(() => expect(apiMocks.setConnected).toHaveBeenCalledWith('facebook', true));
+  });
+
+  it('opens every Deploy sidebar feature', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('heading', { name: 'Look and feel', level: 2 });
+
+    for (const label of ['Agent source', 'Toggle', 'Conversation starters', 'Color studio', 'Font studio', 'Greeting editor', 'Localization', 'GDPR & consent', 'Other', 'Get link', 'QR code', 'Instant embed', 'IFrame embed']) {
+      await user.click(screen.getByRole('button', { name: label }));
+      expect(screen.getByRole('heading', { name: label, level: 2 })).toBeInTheDocument();
+    }
+  });
+
+  it('updates Hindi localization fields and the live preview immediately', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('heading', { name: 'Look and feel', level: 2 });
+
+    await user.click(screen.getByRole('button', { name: 'Localization' }));
+    await user.selectOptions(screen.getByLabelText('Interface language'), 'Hindi');
+
+    expect(screen.getByDisplayValue('नई बातचीत')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('भेजें')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('चैट बंद करें')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('हम जल्द वापस आएंगे')).toBeInTheDocument();
+    expect(screen.getByTestId('widget-preview')).toHaveTextContent('मैं आपकी कैसे मदद कर सकता हूँ?');
+  });
+
+  it('reflects toggle and launcher changes immediately in the website preview', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('heading', { name: 'Look and feel', level: 2 });
+
+    await user.click(screen.getByRole('button', { name: 'Toggle' }));
+    expect(screen.getByRole('button', { name: 'Preview spark launcher' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Bubble' }));
+    expect(screen.getByRole('button', { name: 'Preview bubble launcher' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /Widget enabled/ }));
+    expect(screen.getByText('Widget disabled')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /Widget enabled/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Open on page load/ }));
+    expect(screen.getByTestId('widget-preview')).toBeInTheDocument();
+  });
+
+  it('uses correctly labeled desktop and mobile preview canvases', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByLabelText('Mobile website preview')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Desktop preview' }));
+    expect(screen.getByLabelText('Desktop website preview')).toBeInTheDocument();
+    expect(screen.getByTestId('widget-preview')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Preview spark launcher' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Toggle' }));
+    expect(screen.getByRole('button', { name: 'Preview spark launcher' })).toBeInTheDocument();
+    expect(screen.queryByTestId('widget-preview')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Preview spark launcher' }));
+    expect(screen.getByTestId('widget-preview')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close preview widget' }));
+    expect(screen.getByRole('button', { name: 'Preview spark launcher' })).toBeInTheDocument();
+  });
+
+  it('shows a different live template for each major messaging integration', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const selector = await screen.findByRole('combobox', { name: 'Select deployment channel' });
+
+    await user.selectOptions(selector, 'whatsapp');
+    expect(screen.getByLabelText('WhatsApp conversation preview')).toBeInTheDocument();
+    await user.selectOptions(selector, 'instagram');
+    expect(screen.getByLabelText('Instagram direct-message preview')).toBeInTheDocument();
+    await user.selectOptions(selector, 'facebook');
+    expect(screen.getByLabelText('Facebook Messenger preview')).toBeInTheDocument();
+    await user.selectOptions(selector, 'slack');
+    expect(screen.getByLabelText('Slack preview')).toBeInTheDocument();
   });
 });

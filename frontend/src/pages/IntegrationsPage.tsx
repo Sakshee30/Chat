@@ -1,4 +1,4 @@
-import { BookOpen, Check, CircleAlert, Code2, Database, Hash, MessageCircle, PlugZap, Search, Terminal, Users, Zap } from 'lucide-react';
+import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
 import type { Integration } from '@/types';
 
-const iconMap = { code: Code2, hash: Hash, message: MessageCircle, zap: Zap, book: BookOpen, terminal: Terminal, users: Users };
+const iconMap = { code: Code2, hash: Hash, message: MessageCircle, zap: Zap, book: BookOpen, terminal: Terminal, users: Users, facebook: Facebook, instagram: Instagram };
 
 export function IntegrationsPage() {
   const result = useApi(() => api.integrations.list());

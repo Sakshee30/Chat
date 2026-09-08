@@ -23,6 +23,8 @@ def chat_sse_response(prepared: PreparedChat) -> StreamingResponse:
                 "messageId": str(prepared.assistant_message_id),
             }
         )
+        if prepared.display_question:
+            yield _frame({"type": "user_translation", "content": prepared.display_question})
         for token in token_chunks(prepared.answer):
             yield _frame({"type": "token", "content": token})
             await asyncio.sleep(0)

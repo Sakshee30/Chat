@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Bot,
   Check,
   ChevronDown,
@@ -6,28 +7,37 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Facebook,
   FileCode2,
   Globe2,
   Image,
+  Instagram,
+  Hash,
   Languages,
   Link2,
   MessageSquareText,
   Monitor,
+  MoreVertical,
   Paintbrush,
   PanelBottom,
+  PlugZap,
   Plus,
   QrCode,
   RotateCcw,
   Save,
+  Search,
+  SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
+  Terminal,
   ToggleRight,
   Type,
   WandSparkles,
+  Workflow,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChatWidget } from '@/components/chat-widget';
 import { useToast } from '@/components/providers';
@@ -35,7 +45,8 @@ import { Badge, Button, Card, Field, PageLoader, Switch } from '@/components/ui'
 import { api } from '@/lib/api';
 import { createQrAssets, downloadQrAsset, type QrAssets } from '@/lib/qr';
 import { useApi } from '@/lib/use-api';
-import type { Agent, AgentAppearance, AgentPatch } from '@/types';
+import { getChatUiLocale, getWidgetLocale, localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
+import type { Agent, AgentAppearance, AgentPatch, Integration } from '@/types';
 
 const buildItems = [
   { id: 'source', label: 'Agent source', icon: Bot },
@@ -57,9 +68,9 @@ const shareItems = [
   { id: 'iframe', label: 'IFrame embed', icon: FileCode2 },
 ] as const;
 
-type DeploySection = (typeof buildItems)[number]['id'] | (typeof shareItems)[number]['id'];
+type DeploySection = (typeof buildItems)[number]['id'] | (typeof shareItems)[number]['id'] | 'channel';
 
-const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'greeting', 'other']);
+const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'font', 'greeting', 'localization', 'gdpr', 'other', 'link']);
 
 function cloneAgent(agent: Agent): Agent {
   return {
@@ -95,7 +106,10 @@ function isValidAppearance(appearance: AgentAppearance): boolean {
 
 export function DeployPage() {
   const agents = useApi(() => api.agents.list());
+  const integrations = useApi(() => api.integrations.list());
   const [agentId, setAgentId] = useState('agent-northstar');
+  const [integrationId, setIntegrationId] = useState('website');
+  const [integrationOverrides, setIntegrationOverrides] = useState<Record<string, boolean>>({});
   const [savedAgents, setSavedAgents] = useState<Agent[]>([]);
   const [draftAgents, setDraftAgents] = useState<Agent[]>([]);
   const [section, setSection] = useState<DeploySection>('look');
@@ -116,6 +130,16 @@ export function DeployPage() {
   const dirty = Boolean(agent && savedAgent && JSON.stringify(savedDeployState(agent)) !== JSON.stringify(savedDeployState(savedAgent)));
   const valid = Boolean(agent && isValidAppearance(agent.appearance));
   const showActions = persistedSections.has(section);
+  const integration = integrations.data?.find((item) => item.id === integrationId) ?? integrations.data?.[0];
+  const selectedAgentId = agent?.id;
+  const preferredDeploymentChannel = agent?.appearance.deploymentChannel ?? 'website';
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    if (!integrations.data?.some((item) => item.id === preferredDeploymentChannel)) return;
+    setIntegrationId(preferredDeploymentChannel);
+    setSection(preferredDeploymentChannel === 'website' ? 'look' : 'channel');
+  }, [selectedAgentId, preferredDeploymentChannel, integrations.data]);
 
   const updateAgent = (patch: AgentPatch) => {
     if (!agent) return;
@@ -129,12 +153,20 @@ export function DeployPage() {
 
   const reset = () => {
     if (!agent || !savedAgent) return;
+    if (!dirty) {
+      pushToast('There are no pending changes to reset', 'info');
+      return;
+    }
     setDraftAgents((current) => current.map((item) => item.id === agent.id ? cloneAgent(savedAgent) : item));
     pushToast('Widget changes reset', 'info');
   };
 
   const save = async () => {
-    if (!agent || !valid || !dirty) return;
+    if (!agent || !valid) return;
+    if (!dirty) {
+      pushToast('All changes are already applied', 'info');
+      return;
+    }
     setSaving(true);
     try {
       const saved = await api.agents.update(agent.id, {
@@ -152,31 +184,51 @@ export function DeployPage() {
     }
   };
 
-  if (agents.loading || !agent) return <PageLoader />;
+  const setIntegrationConnected = async (item: Integration, connected: boolean) => {
+    try {
+      const saved = await api.integrations.setConnected(item.id, connected);
+      setIntegrationOverrides((current) => ({ ...current, [item.id]: saved.connected }));
+      pushToast(`${item.name} ${saved.connected ? 'enabled' : 'disabled'} for this workspace`);
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : `Could not update ${item.name}`, 'error');
+    }
+  };
+
+  if (agents.loading || integrations.loading || !agent) return <PageLoader />;
 
   return <div className="deploy-page">
     <aside className="deploy-sidebar">
-      <div className="deploy-sidebar__heading">
+      <label className="deploy-sidebar__heading">
         <span className="agent-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span>
-        <span><small>My widget</small><strong>{agent.name}</strong></span>
+        <span><small>Agent</small><strong>{agent.name}</strong></span>
+        <select aria-label="Select deploy agent" value={agent.id} onChange={(event) => setAgentId(event.target.value)}>
+          {draftAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
         <ChevronDown />
-      </div>
+      </label>
+      <label className="deploy-channel-select">
+        <span><PlugZap /><small>Deployment channel</small><strong>{integration?.name ?? 'Website widget'}</strong></span>
+        <select aria-label="Select deployment channel" value={integration?.id ?? 'website'} onChange={(event) => { setIntegrationId(event.target.value); setSection(event.target.value === 'website' ? 'look' : 'channel'); }}>
+          {integrations.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+        <ChevronDown />
+      </label>
       <p>BUILD</p>
-      {buildItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
+      {buildItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => { setIntegrationId('website'); setSection(id); }}><Icon /><span>{label}</span></button>)}
       <p>SHARE</p>
-      {shareItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
+      {shareItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => { setIntegrationId('website'); setSection(id); }}><Icon /><span>{label}</span></button>)}
     </aside>
 
     <section className="deploy-editor">
       <div className="deploy-editor__heading">
         <div>
           <span className="page-kicker">Widget manager</span>
-          <h2>{[...buildItems, ...shareItems].find((item) => item.id === section)?.label}</h2>
+          <h2>{section === 'channel' ? integration?.name : [...buildItems, ...shareItems].find((item) => item.id === section)?.label}</h2>
           <p>Customize and publish a polished experience for every visitor.</p>
         </div>
         {showActions ? <div className="deploy-heading-actions">
-          <Button variant="ghost" icon={RotateCcw} disabled={!dirty || saving} onClick={reset}>Reset changes</Button>
-          <Button icon={Save} disabled={!dirty || saving || !valid} onClick={() => void save()}>{saving ? 'Applying...' : 'Apply'}</Button>
+          <Button variant="ghost" icon={RotateCcw} disabled={saving} onClick={reset}>Reset changes</Button>
+          <Button icon={Save} disabled={saving || !valid} onClick={() => void save()}>{saving ? 'Applying...' : 'Apply'}</Button>
         </div> : null}
       </div>
       <DeployEditor
@@ -187,27 +239,126 @@ export function DeployPage() {
         setAgentId={setAgentId}
         updateAgent={updateAgent}
         updateAppearance={updateAppearance}
+        integration={integration}
+        integrationConnected={integration ? integrationOverrides[integration.id] ?? integration.connected : false}
+        setIntegrationConnected={setIntegrationConnected}
+        setSection={setSection}
+        onSave={save}
       />
     </section>
 
     <aside className="deploy-preview">
       <div className="preview-heading">
-        <span><i className="status-dot status-dot--success" /> Interactive preview</span>
+        <span><i className="status-dot status-dot--success" /> {integration?.name ?? 'Website widget'} preview</span>
         <div className="device-toggle">
           <button className={device === 'desktop' ? 'is-active' : ''} onClick={() => setDevice('desktop')} aria-label="Desktop preview"><Monitor /></button>
           <button className={device === 'mobile' ? 'is-active' : ''} onClick={() => setDevice('mobile')} aria-label="Mobile preview"><Smartphone /></button>
         </div>
       </div>
       <div className={`deploy-preview__stage deploy-preview__stage--${device}`}>
-        <div className="browser-mock">
-          <div className="browser-mock__bar"><i /><i /><i /><span>yourwebsite.com</span></div>
-          <div className="browser-mock__page"><div className="mock-nav" /><div className="mock-hero"><i /><i /><i /></div><div className="mock-cards"><i /><i /><i /></div></div>
-          <div className={`embedded-widget embedded-widget--${agent.appearance.position}`}><ChatWidget agent={agent} embedded /></div>
-        </div>
+        <DeploymentPreview agent={agent} integrationId={integration?.id ?? 'website'} device={device} section={section} />
       </div>
-      <p className="preview-note">Preview scales to fit. Your live widget remains fully responsive.</p>
+      <p className="preview-note">{device === 'desktop' ? 'Desktop preview scales to fit the available canvas.' : 'Mobile preview uses the compact channel layout.'}</p>
     </aside>
   </div>;
+}
+
+function DeploymentPreview({ agent, integrationId, device, section }: { agent: Agent; integrationId: string; device: 'desktop' | 'mobile'; section: DeploySection }) {
+  if (integrationId === 'website') return <WebsiteDeploymentPreview agent={agent} device={device} section={section} />;
+  if (integrationId === 'whatsapp') return <WhatsAppPreview agent={agent} device={device} />;
+  if (integrationId === 'instagram') return <InstagramPreview agent={agent} device={device} />;
+  if (integrationId === 'facebook') return <MessengerPreview agent={agent} device={device} />;
+  return <GenericIntegrationPreview agent={agent} integrationId={integrationId} device={device} />;
+}
+
+export function AgentDeploymentPreview({ agent, integrationId, device = 'mobile' }: { agent: Agent; integrationId: string; device?: 'desktop' | 'mobile' }) {
+  return <DeploymentPreview agent={agent} integrationId={integrationId} device={device} section="look" />;
+}
+
+function WebsiteDeploymentPreview({ agent, device, section }: { agent: Agent; device: 'desktop' | 'mobile'; section: DeploySection }) {
+  const openOnLoad = agent.appearance.openOnPageLoad ?? false;
+  const [manuallyOpen, setManuallyOpen] = useState(false);
+  useEffect(() => { setManuallyOpen(false); }, [agent.id, agent.status, openOnLoad, section, device]);
+  const enabled = agent.status === 'active';
+  const showLauncherState = enabled && section === 'toggle' && !openOnLoad && !manuallyOpen;
+  const width = agent.appearance.widgetWidth ?? 380;
+  const height = agent.appearance.widgetHeight ?? 680;
+  const previewWidth = device === 'desktop' ? (section === 'look' ? Math.min(542, Math.max(320, width)) : 542) : width;
+  const previewHeight = device === 'desktop' ? Math.min(558, Math.max(500, height)) : height;
+  const offset = device === 'desktop' ? 14 : 0;
+  const side = agent.appearance.position === 'bottom-left' ? 'left' : 'right';
+  const widgetStyle: CSSProperties = device === 'desktop' ? {
+    width: 'calc(100% - 28px)',
+    maxWidth: previewWidth,
+    height: 'calc(100% - 60px)',
+    maxHeight: previewHeight,
+    bottom: offset,
+    [side]: offset,
+    transform: 'none',
+    filter: agent.appearance.elevatedShadow === false ? 'none' : undefined,
+  } : {};
+  const LauncherIcon = agent.appearance.launcherStyle === 'bubble' ? MessageSquareText : Sparkles;
+  const locale = getWidgetLocale(agent.appearance.interfaceLanguage);
+  const previewAgent = section === 'localization' ? { ...agent, appearance: { ...agent.appearance, welcomeTitle: locale.welcomeTitle, welcomeMessage: locale.welcomeMessage, placeholder: locale.placeholder, suggestedQuestions: locale.suggestedQuestions } } : agent;
+
+  return <div className="browser-mock" aria-label={`${device === 'desktop' ? 'Desktop' : 'Mobile'} website preview`}>
+    <div className="browser-mock__bar"><i /><i /><i /><span>{agent.appearance.customDomain || 'yourwebsite.com'}</span></div>
+    <div className="browser-mock__page"><div className="mock-nav" /><div className="mock-hero"><i /><i /><i /></div><div className="mock-cards"><i /><i /><i /></div></div>
+    {!enabled ? <div className="preview-disabled-state"><ToggleRight /><strong>Widget disabled</strong><small>Turn on “Widget enabled” to show the launcher.</small></div> : showLauncherState ? <div className={`preview-launcher-state preview-launcher-state--${side}`} style={{ bottom: offset || 18, [side]: offset || 18 }}>
+      <span>Launcher preview · click to open</span>
+      <button type="button" className="preview-launcher" style={{ background: agent.appearance.primaryColor }} onClick={() => setManuallyOpen(true)} aria-label={`Preview ${agent.appearance.launcherStyle} launcher`}>
+        {agent.appearance.launcherStyle === 'avatar' ? <span>{agent.avatar.slice(0, 2)}</span> : <LauncherIcon />}
+      </button>
+    </div> : <div className={`embedded-widget embedded-widget--${agent.appearance.position}`} style={widgetStyle}>
+      {!openOnLoad && manuallyOpen ? <button type="button" className="preview-widget-close" onClick={() => setManuallyOpen(false)} aria-label="Close preview widget">&times;</button> : null}
+      <ChatWidget key={agent.appearance.interfaceLanguage ?? 'English'} agent={previewAgent} embedded />
+    </div>}
+  </div>;
+}
+
+function ChannelFrame({ label, device, className, accent, children }: { label: string; device: 'desktop' | 'mobile'; className: string; accent: string; children: ReactNode }) {
+  return <section className={`channel-frame channel-frame--${device} ${className}`} style={{ '--channel-accent': accent } as CSSProperties} aria-label={label}>{children}</section>;
+}
+
+function WhatsAppPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
+  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
+  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
+  return <ChannelFrame label="WhatsApp conversation preview" device={device} className="whatsapp-template" accent="#1fa855">
+    <aside className="channel-list"><div className="channel-list__brand"><strong>WhatsApp</strong><MoreVertical /></div><div className="channel-search"><Search /> {chatUi.searchChats}</div><div className="channel-contact is-active"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{agent.appearance.welcomeTitle}</small></div><i>{chatUi.activeNow}</i></div><div className="channel-contact"><span>JD</span><div><strong>Jordan Diaz</strong><small>{locale.welcomeMessage}</small></div></div></aside>
+    <div className="channel-conversation"><header><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.businessAccount} · {chatUi.online}</small></div><Search /><MoreVertical /></header><main className="whatsapp-wallpaper"><time>{locale.today}</time><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[0] ?? locale.suggestedQuestions[0]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}<small>12:42 ✓✓</small></div></main><footer><button type="button">+</button><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
+  </ChannelFrame>;
+}
+
+function InstagramPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
+  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
+  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
+  return <ChannelFrame label="Instagram direct-message preview" device={device} className="instagram-template" accent="#d946ef">
+    <aside className="channel-list"><div className="channel-list__brand"><strong>Instagram</strong><Instagram /></div><div className="channel-search"><Search /> {chatUi.searchMessages}</div><div className="channel-contact is-active"><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.activeNow}</small></div></div><div className="channel-contact"><span>AR</span><div><strong>Alex Rivera</strong><small>{locale.welcomeMessage}</small></div></div></aside>
+    <div className="channel-conversation"><header><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.professionalAccount}</small></div><MoreVertical /></header><main><div className="instagram-profile"><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><strong>{agent.name}</strong><small>{chatUi.aiAssistant}</small></div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[0] ?? locale.suggestedQuestions[0]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}</div></main><footer><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
+  </ChannelFrame>;
+}
+
+function MessengerPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
+  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
+  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
+  return <ChannelFrame label="Facebook Messenger preview" device={device} className="messenger-template" accent="#0866ff">
+    <aside className="channel-list"><div className="channel-list__brand"><strong>Messenger</strong><Facebook /></div><div className="channel-search"><Search /> {chatUi.searchMessages}</div><div className="channel-contact is-active"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{agent.appearance.welcomeTitle}</small></div></div><div className="channel-contact"><span>MS</span><div><strong>Morgan Smith</strong><small>{locale.welcomeMessage}</small></div></div></aside>
+    <div className="channel-conversation"><header><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.activeNow}</small></div><MoreVertical /></header><main><time>{locale.today} · 12:40</time><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[1] ?? locale.suggestedQuestions[1]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}</div></main><footer><button type="button">+</button><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
+  </ChannelFrame>;
+}
+
+function GenericIntegrationPreview({ agent, integrationId, device }: { agent: Agent; integrationId: string; device: 'desktop' | 'mobile' }) {
+  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
+  const details = integrationId === 'slack' ? { name: 'Slack', icon: Hash, accent: '#611f69', context: '#support' }
+    : integrationId === 'teams' ? { name: 'Microsoft Teams', icon: MessageSquareText, accent: '#6264a7', context: 'Customer support' }
+      : integrationId === 'api' ? { name: 'Developer API', icon: Terminal, accent: '#146cf6', context: 'Streaming response' }
+        : integrationId === 'notion' ? { name: 'Notion', icon: BookOpen, accent: '#111827', context: 'Knowledge sync' }
+          : { name: 'Zapier', icon: Workflow, accent: '#ff4f00', context: 'Conversation workflow' };
+  const Icon = details.icon;
+  return <ChannelFrame label={`${details.name} preview`} device={device} className={`generic-channel-template generic-channel-template--${integrationId}`} accent={details.accent}>
+    <header><span><Icon /></span><div><strong>{details.name}</strong><small>{details.context}</small></div><Badge tone="success">{chatUi.livePreview}</Badge></header>
+    <main><div className="generic-agent-card"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><small>{agent.name}</small><h3>{agent.appearance.welcomeTitle}</h3><p>{agent.appearance.welcomeMessage}</p></div></div>{integrationId === 'api' ? <pre><code>{`event: message\ndata: {\n  "agent": "${agent.publicId}",\n  "content": "${agent.appearance.welcomeMessage}"\n}`}</code></pre> : <div className="generic-flow"><span><Icon /> {chatUi.incomingMessage}</span><i /><span><Sparkles /> {agent.name}</span><i /><span><Check /> {chatUi.responseDelivered}</span></div>}</main>
+  </ChannelFrame>;
 }
 
 interface DeployEditorProps {
@@ -217,25 +368,27 @@ interface DeployEditorProps {
   setAgentId: (id: string) => void;
   updateAgent: (patch: AgentPatch) => void;
   updateAppearance: (patch: Partial<AgentAppearance>) => void;
+  integration?: Integration;
+  integrationConnected: boolean;
+  setIntegrationConnected: (integration: Integration, connected: boolean) => Promise<void>;
+  setSection: (section: DeploySection) => void;
+  onSave: () => Promise<void>;
 }
 
-function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateAppearance }: DeployEditorProps) {
-  const [openDefault, setOpenDefault] = useState(false);
-  const [direction, setDirection] = useState('ltr');
-  const [greetingMode, setGreetingMode] = useState('once');
-  const [consent, setConsent] = useState(false);
-  const [zIndex, setZIndex] = useState(99999);
-  const [font, setFont] = useState('Inter');
-  const [radius, setRadius] = useState(24);
-  const [width, setWidth] = useState(380);
-  const [height, setHeight] = useState(680);
-  const [shadow, setShadow] = useState(true);
-  const [margin, setMargin] = useState(24);
-  const [customDomain, setCustomDomain] = useState('');
+function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateAppearance, integration, integrationConnected, setIntegrationConnected, setSection, onSave }: DeployEditorProps) {
   const [iframeWidth, setIframeWidth] = useState(100);
   const [iframeHeight, setIframeHeight] = useState(700);
+  const [diagnostics, setDiagnostics] = useState('');
+  const { pushToast } = useToast();
   const hostedUrl = `${window.location.origin}/demo/${agent.publicId}`;
   const embeddedUrl = `${window.location.origin}/widget/${agent.publicId}`;
+
+  if (section === 'channel' && integration) return <IntegrationDeployPanel
+    integration={integration}
+    connected={integrationConnected}
+    onToggle={(connected) => setIntegrationConnected(integration, connected)}
+    onWebsite={() => setSection('embed')}
+  />;
 
   if (section === 'source') return <Panel title="Choose an agent" description="This widget uses the selected agent's knowledge, behavior, and model.">
     <Field label="Agent source" htmlFor="deploy-agent">
@@ -251,13 +404,13 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
 
   if (section === 'look') return <>
     <Panel title="Widget dimensions" description="Set the expanded size. Mobile automatically fills available width.">
-      <div className="two-fields"><NumberField label="Width" value={width} onChange={setWidth} suffix="px" min={320} max={600} /><NumberField label="Height" value={height} onChange={setHeight} suffix="px" min={480} max={900} /></div>
+      <div className="two-fields"><NumberField label="Width" value={agent.appearance.widgetWidth ?? 380} onChange={(widgetWidth) => updateAppearance({ widgetWidth })} suffix="px" min={320} max={600} /><NumberField label="Height" value={agent.appearance.widgetHeight ?? 680} onChange={(widgetHeight) => updateAppearance({ widgetHeight })} suffix="px" min={480} max={900} /></div>
       <div className="segmented-field"><span>Placement</span><div>
         <button className={agent.appearance.position === 'bottom-left' ? 'is-active' : ''} onClick={() => updateAppearance({ position: 'bottom-left' })}>Bottom left</button>
         <button className={agent.appearance.position === 'bottom-right' ? 'is-active' : ''} onClick={() => updateAppearance({ position: 'bottom-right' })}>Bottom right</button>
       </div></div>
-      <div className="two-fields"><NumberField label="Page margin" value={margin} onChange={setMargin} suffix="px" min={8} max={64} /><Field label="Text direction" htmlFor="direction"><select id="direction" value={direction} onChange={(event) => setDirection(event.target.value)}><option value="ltr">Left to right</option><option value="rtl">Right to left</option></select></Field></div>
-      <Switch label="Elevated shadow" description="Separate the widget from page content." checked={shadow} onChange={setShadow} />
+      <div className="two-fields"><NumberField label="Page margin" value={agent.appearance.pageMargin ?? 24} onChange={(pageMargin) => updateAppearance({ pageMargin })} suffix="px" min={8} max={64} /><Field label="Text direction" htmlFor="direction"><select id="direction" value={agent.appearance.textDirection ?? 'ltr'} onChange={(event) => updateAppearance({ textDirection: event.target.value as 'ltr' | 'rtl' })}><option value="ltr">Left to right</option><option value="rtl">Right to left</option></select></Field></div>
+      <Switch label="Elevated shadow" description="Separate the widget from page content." checked={agent.appearance.elevatedShadow ?? true} onChange={(elevatedShadow) => updateAppearance({ elevatedShadow })} />
     </Panel>
     <Panel title="Interface copy" description="Fine-tune high-visibility widget text.">
       <Field label="Hero heading" htmlFor="look-hero"><input id="look-hero" maxLength={120} value={agent.appearance.welcomeTitle} onChange={(event) => updateAppearance({ welcomeTitle: event.target.value })} /></Field>
@@ -268,7 +421,7 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
 
   if (section === 'toggle') return <Panel title="Launcher behavior" description="Control how and when the widget appears.">
     <Switch label="Widget enabled" description="Show the launcher on connected websites." checked={agent.status === 'active'} onChange={(enabled) => updateAgent({ status: enabled ? 'active' : 'draft' })} />
-    <Switch label="Open on page load" description="Preview this installation-level option before embedding." checked={openDefault} onChange={setOpenDefault} />
+    <Switch label="Open on page load" description="Open the chat automatically when a visitor loads the page." checked={agent.appearance.openOnPageLoad ?? false} onChange={(openOnPageLoad) => updateAppearance({ openOnPageLoad })} />
     <div className="launcher-options"><strong>Launcher style</strong><div>
       <button className={agent.appearance.launcherStyle === 'spark' ? 'is-active' : ''} onClick={() => updateAppearance({ launcherStyle: 'spark' })}><Sparkles />Spark</button>
       <button className={agent.appearance.launcherStyle === 'bubble' ? 'is-active' : ''} onClick={() => updateAppearance({ launcherStyle: 'bubble' })}><MessageSquareText />Bubble</button>
@@ -303,35 +456,43 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   }
 
   if (section === 'font') return <Panel title="Font studio" description="Choose typography that feels native to your website.">
-    <Field label="Font family" htmlFor="font-family"><select id="font-family" value={font} onChange={(event) => setFont(event.target.value)}><option>Inter</option><option>DM Sans</option><option>Manrope</option><option>System UI</option></select></Field>
-    <NumberField label="Corner radius" value={radius} onChange={setRadius} suffix="px" min={0} max={32} />
-    <div className="font-sample" style={{ fontFamily: font, borderRadius: radius }}><small>FONT PREVIEW</small><h3>{agent.appearance.welcomeTitle}</h3><p>{agent.appearance.welcomeMessage}</p><button style={{ background: agent.appearance.primaryColor }}>Start a conversation</button></div>
+    <Field label="Font family" htmlFor="font-family"><select id="font-family" value={agent.appearance.fontFamily ?? 'Inter'} onChange={(event) => updateAppearance({ fontFamily: event.target.value as AgentAppearance['fontFamily'] })}><option>Inter</option><option>DM Sans</option><option>Manrope</option><option>System UI</option></select></Field>
+    <NumberField label="Corner radius" value={agent.appearance.cornerRadius ?? 24} onChange={(cornerRadius) => updateAppearance({ cornerRadius })} suffix="px" min={0} max={32} />
+    <div className="font-sample" style={{ fontFamily: agent.appearance.fontFamily ?? 'Inter', borderRadius: agent.appearance.cornerRadius ?? 24 }}><small>FONT PREVIEW</small><h3>{agent.appearance.welcomeTitle}</h3><p>{agent.appearance.welcomeMessage}</p><button style={{ background: agent.appearance.primaryColor }}>Start a conversation</button></div>
   </Panel>;
 
   if (section === 'greeting') return <Panel title="Greeting editor" description="Welcome visitors at the right moment without being intrusive.">
     <Field label="Greeting" htmlFor="greeting"><textarea id="greeting" rows={4} maxLength={500} value={agent.appearance.welcomeMessage} onChange={(event) => updateAppearance({ welcomeMessage: event.target.value })} /></Field>
-    <fieldset className="greeting-modes"><legend>Show greeting</legend>{[['always', 'Always'], ['once', 'Once per session'], ['interaction', 'Until interaction'], ['never', 'Never']].map(([value, label]) => <label key={value} className={greetingMode === value ? 'is-selected' : ''}>
-      <input type="radio" name="greeting-mode" checked={greetingMode === value} onChange={() => setGreetingMode(value!)} />
+    <fieldset className="greeting-modes"><legend>Show greeting</legend>{[['always', 'Always'], ['once', 'Once per session'], ['interaction', 'Until interaction'], ['never', 'Never']].map(([value, label]) => <label key={value} className={(agent.appearance.greetingMode ?? 'once') === value ? 'is-selected' : ''}>
+      <input type="radio" name="greeting-mode" checked={(agent.appearance.greetingMode ?? 'once') === value} onChange={() => updateAppearance({ greetingMode: value as AgentAppearance['greetingMode'] })} />
       <span><strong>{label}</strong><small>{value === 'always' ? 'Every page load' : value === 'once' ? 'Once until the browser closes' : value === 'interaction' ? 'Until the visitor opens chat' : 'Launcher only'}</small></span>
     </label>)}</fieldset>
   </Panel>;
 
-  if (section === 'localization') return <Panel title="Localization" description="Translate interface labels while the agent answers in the visitor's language.">
-    <Field label="Interface language" htmlFor="ui-language"><select id="ui-language" defaultValue="English"><option>English</option><option>Hindi</option><option>Spanish</option><option>French</option><option>Arabic</option></select></Field>
-    <div className="localization-fields"><Field label="New conversation"><input defaultValue="New conversation" /></Field><Field label="Send button"><input defaultValue="Send" /></Field><Field label="Close chat"><input defaultValue="Close chat" /></Field><Field label="Offline message"><input defaultValue="We'll be back soon" /></Field></div>
-    <Switch label="Detect browser language" description="Use a saved translation when one is available." checked onChange={() => undefined} />
+  if (section === 'localization') {
+    const locale = getWidgetLocale(agent.appearance.interfaceLanguage);
+    return <Panel title="Localization" description="Translate interface labels while the agent answers in the visitor's language.">
+    <Field label="Interface language" htmlFor="ui-language"><select id="ui-language" value={agent.appearance.interfaceLanguage ?? agent.language ?? 'English'} onChange={(event) => { const language = event.target.value; updateAgent({ language, appearance: localizeAgentAppearance(agent.appearance, language) }); }}>{supportedWidgetLanguages.map((language) => <option key={language}>{language}</option>)}</select></Field>
+    <div className="localization-fields">{([
+      ['newConversation', 'New conversation', 'New conversation'],
+      ['sendButton', 'Send button', 'Send'],
+      ['closeChat', 'Close chat', 'Close chat'],
+      ['offlineMessage', 'Offline message', "We'll be back soon"],
+    ] as const).map(([key, label]) => <Field key={key} label={label}><input value={agent.appearance.translations?.[key] ?? locale.translations[key]} onChange={(event) => updateAppearance({ translations: { ...locale.translations, ...agent.appearance.translations, [key]: event.target.value } })} /></Field>)}</div>
+    <Switch label="Detect browser language" description="Use a saved translation when one is available." checked={agent.appearance.detectBrowserLanguage ?? true} onChange={(detectBrowserLanguage) => updateAppearance({ detectBrowserLanguage })} />
   </Panel>;
+  }
 
   if (section === 'gdpr') return <Panel title="GDPR & consent" description="Give visitors clear control before collecting personal data.">
-    <Switch label="Require consent" description="Visitors must agree before starting a conversation." checked={consent} onChange={setConsent} />
-    {consent ? <><Field label="Consent message" htmlFor="consent-message"><textarea id="consent-message" rows={4} defaultValue="I agree that my messages may be processed to answer my request." /></Field><Field label="Privacy policy URL" htmlFor="privacy-url"><input id="privacy-url" type="url" placeholder="https://example.com/privacy" /></Field></> : null}
+    <Switch label="Require consent" description="Visitors must agree before starting a conversation." checked={agent.appearance.requireConsent ?? false} onChange={(requireConsent) => updateAppearance({ requireConsent })} />
+    {agent.appearance.requireConsent ? <><Field label="Consent message" htmlFor="consent-message"><textarea id="consent-message" rows={4} maxLength={500} value={agent.appearance.consentMessage ?? 'I agree that my messages may be processed to answer my request.'} onChange={(event) => updateAppearance({ consentMessage: event.target.value })} /></Field><Field label="Privacy policy URL" htmlFor="privacy-url"><input id="privacy-url" type="url" value={agent.appearance.privacyPolicyUrl ?? ''} onChange={(event) => updateAppearance({ privacyPolicyUrl: event.target.value })} placeholder="https://example.com/privacy" /></Field></> : null}
     <div className="privacy-note"><ShieldCheck /><span><strong>Privacy by design</strong><small>Sensitive data masking and retention controls are configured on the agent.</small></span></div>
   </Panel>;
 
   if (section === 'other') return <Panel title="Advanced options" description="Fine-grained identity and display controls.">
     <Switch label="Northstar branding" description="Show Powered by Northstar AI below the composer." checked={agent.appearance.showBranding} onChange={(showBranding) => updateAppearance({ showBranding })} />
-    <Field label="Internal widget name" htmlFor="widget-name"><input id="widget-name" defaultValue={`${agent.name} widget`} /></Field>
-    <NumberField label="Layer (z-index)" value={zIndex} onChange={setZIndex} min={1} max={2147483647} />
+    <Field label="Internal widget name" htmlFor="widget-name"><input id="widget-name" maxLength={120} value={agent.appearance.widgetName ?? `${agent.name} widget`} onChange={(event) => updateAppearance({ widgetName: event.target.value })} /></Field>
+    <NumberField label="Layer (z-index)" value={agent.appearance.zIndex ?? 99999} onChange={(zIndex) => updateAppearance({ zIndex })} min={1} max={2147483647} />
     <div className="readonly-field"><span><strong>Widget ID</strong><small>Immutable installation identifier</small></span><code>wdg_{agent.id.replace('agent-', '')}</code></div>
   </Panel>;
 
@@ -339,8 +500,8 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
     <div className="share-url"><Globe2 /><span>{hostedUrl}</span><CopyAction value={hostedUrl} /></div>
     <div className="share-actions"><Link to={`/demo/${agent.publicId}`} target="_blank" rel="noreferrer"><Button icon={ExternalLink}>Open demo</Button></Link></div>
     <hr />
-    <Field label="Custom domain" htmlFor="custom-domain" hint="Create a CNAME record after saving."><input id="custom-domain" value={customDomain} onChange={(event) => setCustomDomain(event.target.value)} placeholder="ask.yourcompany.com" /></Field>
-    <Button variant="secondary" disabled={!customDomain}>Connect domain</Button>
+    <Field label="Custom domain" htmlFor="custom-domain" hint="Create a CNAME record after saving."><input id="custom-domain" value={agent.appearance.customDomain ?? ''} onChange={(event) => updateAppearance({ customDomain: event.target.value.trim().toLowerCase() })} placeholder="ask.yourcompany.com" /></Field>
+    <Button variant="secondary" disabled={!agent.appearance.customDomain} onClick={() => void onSave()}>Save domain</Button>
   </SharePanel>;
 
   if (section === 'qr') return <QrSharePanel hostedUrl={hostedUrl} agent={agent} />;
@@ -350,7 +511,13 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
     return <SharePanel icon={Code2} title="Instant embed" description="Paste this before the closing </body> tag on every page where chat should appear.">
       <CodeSnippet value={code} />
       <div className="connected-domains"><strong>Allowed domains</strong>{agent.security.allowedDomains.map((domain) => <span key={domain}><i className="status-dot status-dot--success" /> {domain} <Badge tone="success">Allowed</Badge></span>)}</div>
-      <div className="recovery-tip"><PanelBottom /><span><strong>Widget not appearing?</strong><small>Check the browser console, domain allowlist, and content security policy.</small></span><button>Run diagnostics</button></div>
+      <div className="recovery-tip"><PanelBottom /><span><strong>Widget not appearing?</strong><small>{diagnostics || 'Check the browser console, domain allowlist, and content security policy.'}</small></span><button onClick={() => {
+        const host = window.location.hostname;
+        const allowed = agent.security.allowedDomains.some((domain) => domain === host || host.endsWith(`.${domain}`));
+        const result = agent.status !== 'active' ? 'Agent is disabled. Enable it under Toggle and apply changes.' : allowed ? `Checks passed for ${host}. The embed code and domain allowlist are valid.` : `${host} is not in this agent's allowed domains.`;
+        setDiagnostics(result);
+        pushToast(result, allowed && agent.status === 'active' ? 'success' : 'info');
+      }}>Run diagnostics</button></div>
     </SharePanel>;
   }
 
@@ -397,6 +564,27 @@ function QrSharePanel({ hostedUrl, agent }: { hostedUrl: string; agent: Agent })
   </SharePanel>;
 }
 
+function IntegrationDeployPanel({ integration, connected, onToggle, onWebsite }: { integration: Integration; connected: boolean; onToggle: (connected: boolean) => Promise<void>; onWebsite: () => void }) {
+  const [updating, setUpdating] = useState(false);
+  const Icon = integration.id === 'facebook' ? Facebook : integration.id === 'instagram' ? Instagram : integration.id === 'website' ? Globe2 : integration.id === 'whatsapp' ? MessageSquareText : PlugZap;
+  const toggle = async () => {
+    setUpdating(true);
+    try { await onToggle(!connected); } finally { setUpdating(false); }
+  };
+
+  return <SharePanel icon={Icon} title={integration.name} description={integration.description}>
+    <div className="integration-deploy-status">
+      <span className={`integration-deploy-status__icon ${connected ? 'is-connected' : ''}`}><Icon /></span>
+      <span><strong>{connected ? 'Available in this workspace' : 'Not connected'}</strong><small>{connected ? 'This channel can use your selected agent.' : `Connect ${integration.name} to make it available for deployment.`}</small></span>
+      {connected ? <Badge tone="success"><Check /> Connected</Badge> : null}
+    </div>
+    <div className="share-actions integration-deploy-actions">
+      {integration.id === 'website' ? <Button icon={Code2} onClick={onWebsite}>View embed options</Button> : integration.id === 'whatsapp' ? <Link to="/integrations"><Button icon={ExternalLink}>{connected ? 'Manage WhatsApp' : 'Connect WhatsApp'}</Button></Link> : <Button disabled={integration.comingSoon || updating} onClick={() => void toggle()}>{integration.comingSoon ? 'Coming soon' : updating ? 'Updating...' : connected ? 'Disable channel' : 'Enable channel'}</Button>}
+      <Link to="/integrations"><Button variant="secondary">All integrations</Button></Link>
+    </div>
+  </SharePanel>;
+}
+
 function Panel({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return <Card className="deploy-panel"><div className="deploy-panel__heading"><h3>{title}</h3><p>{description}</p></div><div className="deploy-panel__body">{children}</div></Card>;
 }
@@ -410,13 +598,22 @@ function NumberField({ label, value, onChange, suffix, min, max }: { label: stri
 }
 
 function CopyAction({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copy = async () => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+      else {
+        const input = document.createElement('textarea');
+        input.value = value; input.style.position = 'fixed'; input.style.opacity = '0';
+        document.body.appendChild(input); input.select();
+        if (!document.execCommand('copy')) throw new Error('Copy unavailable');
+        input.remove();
+      }
+      setState('copied');
+    } catch { setState('failed'); }
+    window.setTimeout(() => setState('idle'), 1400);
   };
-  return <button onClick={() => void copy()}>{copied ? <Check /> : <Copy />}{copied ? 'Copied' : 'Copy'}</button>;
+  return <button onClick={() => void copy()}>{state === 'copied' ? <Check /> : <Copy />}{state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}</button>;
 }
 
 function CodeSnippet({ value }: { value: string }) {

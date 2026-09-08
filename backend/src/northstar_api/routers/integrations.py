@@ -74,6 +74,20 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "icon": "message",
     },
     {
+        "id": "facebook",
+        "name": "Facebook Messenger",
+        "description": "Deploy the agent to a Facebook Page inbox.",
+        "category": "channel",
+        "icon": "facebook",
+    },
+    {
+        "id": "instagram",
+        "name": "Instagram",
+        "description": "Answer customer messages from Instagram.",
+        "category": "channel",
+        "icon": "instagram",
+    },
+    {
         "id": "zapier",
         "name": "Zapier",
         "description": "Trigger workflows from events.",

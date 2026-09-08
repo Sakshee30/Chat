@@ -1,5 +1,7 @@
 import {
   ArrowUp,
+  Check,
+  Copy,
   ExternalLink,
   MessageSquareText,
   Mic,
@@ -13,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
+import { getChatUiLocale, getWidgetLocale, localizeAgentAppearance } from '@/lib/widget-localization';
 import type { Agent, ChatMessage, WidgetSession } from '@/types';
 
 interface WidgetProps {
@@ -39,6 +42,8 @@ export function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [conversationCopied, setConversationCopied] = useState(false);
 
   const [conversationId, setConversationId] = useState<string | undefined>(
     initialSession?.conversationId,
@@ -54,9 +59,20 @@ export function ChatWidget({
   const [feedbackReason, setFeedbackReason] = useState('');
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consented, setConsented] = useState(!agent.appearance.requireConsent);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController>();
+  const selectedLanguage = agent.appearance.interfaceLanguage || agent.language || 'English';
+  const locale = getWidgetLocale(selectedLanguage);
+  const chatUi = getChatUiLocale(selectedLanguage);
+  const stillUsingEnglishDefaults = selectedLanguage !== 'English'
+    && agent.appearance.welcomeTitle === getWidgetLocale('English').welcomeTitle;
+  const displayAppearance = stillUsingEnglishDefaults
+    ? localizeAgentAppearance(agent.appearance, selectedLanguage)
+    : agent.appearance;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -69,8 +85,33 @@ export function ChatWidget({
     return () => controller.current?.abort();
   }, []);
 
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+
+    const closeMenu = (event: MouseEvent) => {
+      if (!moreMenuRef.current?.contains(event.target as Node)) setMoreMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', closeMenu);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeMenu);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [moreMenuOpen]);
+
+  useEffect(() => {
+    setConsented(!agent.appearance.requireConsent);
+    setConsentChecked(false);
+  }, [agent.appearance.requireConsent]);
+
   const reset = async () => {
     controller.current?.abort();
+    setMoreMenuOpen(false);
+    setConversationCopied(false);
 
     setMessages([]);
     setConversationId(undefined);
@@ -94,14 +135,25 @@ export function ChatWidget({
         {
           id: `session-error-${Date.now()}`,
           role: 'assistant',
-          content:
-            'I could not start a new conversation. Please try again.',
+          content: `${chatUi.sessionError} ${chatUi.tryAgain}`,
           createdAt: new Date().toISOString(),
         },
       ]);
     } finally {
       setResetting(false);
     }
+  };
+
+  const copyConversation = async () => {
+    if (messages.length === 0) return;
+    const transcript = messages
+      .filter((message) => message.content.trim())
+      .map((message) => `${message.role === 'user' ? chatUi.message : agent.name}: ${message.content}`)
+      .join('\n\n');
+
+    await navigator.clipboard.writeText(transcript);
+    setConversationCopied(true);
+    window.setTimeout(() => setConversationCopied(false), 1800);
   };
 
   const submitPositiveFeedback = async (messageId: string) => {
@@ -159,11 +211,12 @@ export function ChatWidget({
   ) => {
     const content = value.trim();
 
-    if (!content || streaming) return;
+    if (!content || streaming || !consented) return;
 
     setInput('');
 
     const responseId = replaceAssistantId ?? `response-${Date.now()}`;
+    const userMessageId = replaceAssistantId ? undefined : `local-${Date.now()}`;
     let currentResponseId = responseId;
 
     if (replaceAssistantId) {
@@ -180,7 +233,7 @@ export function ChatWidget({
       );
     } else {
       const userMessage: ChatMessage = {
-        id: `local-${Date.now()}`,
+        id: userMessageId!,
         role: 'user',
         content,
         createdAt: new Date().toISOString(),
@@ -230,6 +283,7 @@ export function ChatWidget({
                 conversationId: activeConversationId,
                 sessionToken: activeWidgetToken,
                 message: content,
+                language: selectedLanguage,
               },
               controller.current.signal,
             )
@@ -238,6 +292,7 @@ export function ChatWidget({
                 agentId: agent.id,
                 message: content,
                 conversationId,
+                language: selectedLanguage,
               },
               controller.current.signal,
             );
@@ -275,6 +330,16 @@ export function ChatWidget({
     );
   }
 
+  if (event.type === 'user_translation' && userMessageId && event.content.trim()) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === userMessageId
+          ? { ...message, content: event.content.trim() }
+          : message,
+      ),
+    );
+  }
+
   if (event.type === 'citation') {
     setMessages((current) =>
       current.map((message) =>
@@ -294,13 +359,13 @@ export function ChatWidget({
     );
   }
 
-  if (event.type === 'error') {S
+  if (event.type === 'error') {
     setMessages((current) =>
       current.map((message) =>
         message.id === currentResponseId
           ? {
               ...message,
-              content: `I’m sorry, I couldn’t complete that response. ${event.message}`,
+              content: `${chatUi.responseError} ${event.message}`,
             }
           : message,
       ),
@@ -313,10 +378,10 @@ export function ChatWidget({
           message.id === responseId
             ? {
                 ...message,
-                content: `I could not complete that response. ${
+                content: `${chatUi.responseError} ${
                   error instanceof Error
                     ? error.message
-                    : 'Please try again.'
+                    : chatUi.tryAgain
                 }`,
               }
             : message,
@@ -362,7 +427,7 @@ export function ChatWidget({
           background: agent.appearance.primaryColor,
         }}
         onClick={() => setOpen(true)}
-        aria-label={`Open chat with ${agent.name}`}
+        aria-label={`${chatUi.openChat} ${agent.name}`}
       >
         {agent.appearance.launcherStyle === 'bubble' ? (
           <MessageSquareText />
@@ -377,17 +442,25 @@ export function ChatWidget({
     );
   }
 
+  const translations = displayAppearance.translations;
+  const newConversationLabel = translations?.newConversation ?? (agent.appearance.interfaceLanguage ? locale.translations.newConversation : 'Start a new conversation');
+  const closeChatLabel = translations?.closeChat ?? (agent.appearance.interfaceLanguage ? locale.translations.closeChat : 'Close chat');
+  const sendButtonLabel = translations?.sendButton ?? (agent.appearance.interfaceLanguage ? locale.translations.sendButton : 'Send message');
+
   return (
     <section
       className={`chat-widget ${
         embedded ? 'chat-widget--embedded' : ''
       }`}
+      dir={displayAppearance.textDirection ?? 'ltr'}
       style={
         {
           '--widget-primary':
             agent.appearance.primaryColor,
           '--widget-surface':
             agent.appearance.surfaceColor,
+          fontFamily: agent.appearance.fontFamily ?? 'Inter',
+          borderRadius: agent.appearance.cornerRadius ?? 24,
         } as React.CSSProperties
       }
       aria-label={`Chat with ${agent.name}`}
@@ -403,26 +476,58 @@ export function ChatWidget({
           </strong>
         </div>
 
-        <div>
+        <div className="widget-header-actions">
           <button
             onClick={() => void reset()}
             disabled={resetting || streaming}
-            aria-label="Start a new conversation"
-            title="New conversation"
+            aria-label={newConversationLabel}
+            title={newConversationLabel}
           >
             <RefreshCw />
           </button>
 
-          <button
-            aria-label="More options"
-          >
-            <MoreVertical />
-          </button>
+          <div className="widget-more-menu" ref={moreMenuRef}>
+            <button
+              type="button"
+              aria-label={locale.moreOptions}
+              aria-haspopup="menu"
+              aria-expanded={moreMenuOpen}
+              onClick={() => {
+                setConversationCopied(false);
+                setMoreMenuOpen((current) => !current);
+              }}
+            >
+              <MoreVertical />
+            </button>
+
+            {moreMenuOpen ? (
+              <div className="widget-more-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={resetting || streaming}
+                  onClick={() => void reset()}
+                >
+                  <RefreshCw />
+                  <span>{newConversationLabel}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={messages.length === 0}
+                  onClick={() => void copyConversation()}
+                >
+                  {conversationCopied ? <Check /> : <Copy />}
+                  <span>{conversationCopied ? chatUi.conversationCopied : chatUi.copyConversation}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           {!embedded && onClose ? (
             <button
               onClick={onClose}
-              aria-label="Close chat"
+              aria-label={closeChatLabel}
             >
               <X />
             </button>
@@ -441,31 +546,52 @@ export function ChatWidget({
             </span>
 
             <h2>
-              {agent.appearance.welcomeTitle}
+              {displayAppearance.welcomeTitle}
             </h2>
 
-            <p>
-              {agent.appearance.welcomeMessage}
-            </p>
+            {displayAppearance.greetingMode !== 'never' ? (
+              <p>{displayAppearance.welcomeMessage}</p>
+            ) : null}
 
-            <div className="suggestion-list">
-              {agent.appearance.suggestedQuestions
-                .filter(Boolean)
-                .map((question) => (
-                  <button
-                    key={question}
-                    onClick={() => void send(question)}
-                  >
-                    {question}
-                    <ArrowUp />
-                  </button>
-                ))}
-            </div>
+            {!consented ? (
+              <div className="widget-consent">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={consentChecked}
+                    onChange={(event) => setConsentChecked(event.target.checked)}
+                  />
+                  <span>{displayAppearance.consentMessage ?? chatUi.consentMessage}</span>
+                </label>
+                {displayAppearance.privacyPolicyUrl ? (
+                  <a href={displayAppearance.privacyPolicyUrl} target="_blank" rel="noreferrer">
+                    {locale.privacyPolicy} <ExternalLink />
+                  </a>
+                ) : null}
+                <button disabled={!consentChecked} onClick={() => setConsented(true)}>
+                  {locale.continueLabel}
+                </button>
+              </div>
+            ) : (
+              <div className="suggestion-list">
+                {displayAppearance.suggestedQuestions
+                  .filter(Boolean)
+                  .map((question) => (
+                    <button
+                      key={question}
+                      onClick={() => void send(question)}
+                    >
+                      {question}
+                      <ArrowUp />
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
         ) : (
           <div className="message-list">
             <div className="message-day">
-              <span>Today</span>
+              <span>{locale.today}</span>
             </div>
 
             {messages.map((message, index) => (
@@ -521,8 +647,8 @@ export function ChatWidget({
                             message.id,
                           )
                         }
-                        aria-label="Positive feedback"
-                        title="Helpful"
+                        aria-label={chatUi.positiveFeedback}
+                        title={chatUi.helpful}
                         style={{
                           border: 'none',
                           background: 'transparent',
@@ -547,8 +673,8 @@ export function ChatWidget({
                             message.id,
                           )
                         }
-                        aria-label="Negative feedback"
-                        title="Not helpful"
+                        aria-label={chatUi.negativeFeedback}
+                        title={chatUi.notHelpful}
                         style={{
                           border: 'none',
                           background: 'transparent',
@@ -571,8 +697,8 @@ export function ChatWidget({
                         onClick={() =>
                           void regenerate(index)
                         }
-                        aria-label="Regenerate answer"
-                        title="Regenerate"
+                        aria-label={chatUi.regenerateAnswer}
+                        title={chatUi.regenerate}
                         disabled={streaming}
                         style={{
                           border: 'none',
@@ -606,6 +732,7 @@ export function ChatWidget({
           <textarea
             rows={1}
             value={input}
+            disabled={!consented}
             onChange={(event) =>
               setInput(event.target.value)
             }
@@ -618,15 +745,16 @@ export function ChatWidget({
                 void send(input);
               }
             }}
-            placeholder={agent.appearance.placeholder}
-            aria-label="Message"
+            placeholder={consented ? displayAppearance.placeholder : locale.acceptConsent}
+            aria-label={chatUi.message}
           />
 
           <div className="composer-actions">
             <button
               type="button"
-              aria-label="Voice input"
-              title="Voice input"
+              aria-label={locale.voiceInput}
+              title={locale.voiceInput}
+              disabled={!consented}
             >
               <Mic />
             </button>
@@ -636,8 +764,8 @@ export function ChatWidget({
             <button
               type="submit"
               className="send-button"
-              disabled={!input.trim() || streaming}
-              aria-label="Send message"
+              disabled={!consented || !input.trim() || streaming}
+              aria-label={sendButtonLabel}
             >
               <ArrowUp />
             </button>
@@ -646,13 +774,12 @@ export function ChatWidget({
 
         <p>
           <ShieldCheck />
-          AI can make mistakes. Check important
-          information.
+          {locale.safetyNotice}
         </p>
 
         {agent.appearance.showBranding ? (
           <small>
-            Powered by{' '}
+            {locale.poweredBy}{' '}
             <strong>
               <Sparkles /> Northstar AI
             </strong>
@@ -700,7 +827,7 @@ export function ChatWidget({
                   fontSize: '20px',
                 }}
               >
-                Help us improve
+                {chatUi.feedbackTitle}
               </h2>
 
               <button
@@ -708,7 +835,7 @@ export function ChatWidget({
                 onClick={() =>
                   setFeedbackOpen(false)
                 }
-                aria-label="Close feedback"
+                aria-label={chatUi.closeFeedback}
                 style={{
                   border: 'none',
                   background: 'transparent',
@@ -728,7 +855,7 @@ export function ChatWidget({
                 marginBottom: '18px',
               }}
             >
-              What was wrong with this answer?
+              {chatUi.feedbackQuestion}
             </p>
 
             <label
@@ -739,7 +866,7 @@ export function ChatWidget({
                 fontWeight: 600,
               }}
             >
-              Reason
+              {chatUi.reason}
             </label>
 
             <select
@@ -760,27 +887,27 @@ export function ChatWidget({
               }}
             >
               <option value="">
-                Select a reason
+                {chatUi.selectReason}
               </option>
 
               <option value="Incorrect Answer">
-                Incorrect Answer
+                {chatUi.incorrectAnswer}
               </option>
 
               <option value="Incomplete Answer">
-                Incomplete Answer
+                {chatUi.incompleteAnswer}
               </option>
 
               <option value="Hallucinated Response">
-                Hallucinated Response
+                {chatUi.hallucinatedResponse}
               </option>
 
               <option value="Irrelevant Answer">
-                Irrelevant Answer
+                {chatUi.irrelevantAnswer}
               </option>
 
               <option value="Other">
-                Other
+                {chatUi.other}
               </option>
             </select>
 
@@ -792,7 +919,7 @@ export function ChatWidget({
                 fontWeight: 600,
               }}
             >
-              Additional comments
+              {chatUi.additionalComments}
             </label>
 
             <textarea
@@ -803,7 +930,7 @@ export function ChatWidget({
                   event.target.value,
                 )
               }
-              placeholder="Tell us more (optional)"
+              placeholder={chatUi.commentsPlaceholder}
               rows={4}
               style={{
                 width: '100%',
@@ -838,7 +965,7 @@ export function ChatWidget({
                   cursor: 'pointer',
                 }}
               >
-                Cancel
+                {chatUi.cancel}
               </button>
 
               <button
@@ -862,7 +989,7 @@ export function ChatWidget({
                     : 0.55,
                 }}
               >
-                Submit Feedback
+                {chatUi.submitFeedback}
               </button>
             </div>
           </div>

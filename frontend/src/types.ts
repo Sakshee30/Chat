@@ -1,5 +1,6 @@
 export type AgentStatus = 'active' | 'draft' | 'training' | 'error';
 export type AgentTone = 'professional' | 'friendly' | 'concise' | 'empathetic' | 'playful';
+export type DeploymentChannel = 'website' | 'whatsapp' | 'instagram' | 'facebook' | 'slack' | 'teams' | 'api' | 'notion' | 'zapier';
 export type KnowledgeKind = 'file' | 'url' | 'text' | 'sitemap';
 export type KnowledgeStatus = 'ready' | 'processing' | 'failed';
 
@@ -28,6 +29,30 @@ export interface AgentAppearance {
   placeholder: string;
   suggestedQuestions: string[];
   showBranding: boolean;
+  widgetWidth?: number;
+  widgetHeight?: number;
+  pageMargin?: number;
+  textDirection?: 'ltr' | 'rtl';
+  elevatedShadow?: boolean;
+  openOnPageLoad?: boolean;
+  fontFamily?: 'Inter' | 'DM Sans' | 'Manrope' | 'System UI';
+  cornerRadius?: number;
+  greetingMode?: 'always' | 'once' | 'interaction' | 'never';
+  interfaceLanguage?: string;
+  detectBrowserLanguage?: boolean;
+  translations?: {
+    newConversation: string;
+    sendButton: string;
+    closeChat: string;
+    offlineMessage: string;
+  };
+  requireConsent?: boolean;
+  consentMessage?: string;
+  privacyPolicyUrl?: string;
+  widgetName?: string;
+  zIndex?: number;
+  customDomain?: string;
+  deploymentChannel?: DeploymentChannel;
 }
 
 export interface AgentModel {
@@ -201,6 +226,7 @@ export interface WidgetBootstrap {
   publicId: string;
   name: string;
   avatar: string;
+  language?: string;
   appearance: AgentAppearance;
   collectEmail: boolean;
   sessionEndpoint: string;
@@ -248,6 +274,7 @@ export interface WidgetSessionErrorMessage {
 
 export type ChatStreamEvent =
   | { type: 'start'; conversationId: string; messageId: string }
+  | { type: 'user_translation'; content: string }
   | { type: 'token'; content: string }
   | { type: 'citation'; title: string; url?: string }
   | { type: 'done'; conversationId: string }
@@ -257,6 +284,14 @@ export interface CreateAgentInput {
   name: string;
   description: string;
   template?: string;
+  tone?: AgentTone;
+  language?: string;
+  deploymentChannel?: DeploymentChannel;
+}
+
+export interface DuplicateAgentInput {
+  name: string;
+  deploymentChannel: DeploymentChannel;
 }
 
 export type AgentPatch = Partial<Omit<Agent, 'id' | 'createdAt'>>;

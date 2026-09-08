@@ -83,6 +83,36 @@ class AgentAppearance(APIModel):
     placeholder: str = Field(default="Ask me anything...", max_length=120)
     suggested_questions: list[str] = Field(default_factory=list, max_length=8)
     show_branding: bool = True
+    widget_width: int = Field(default=380, ge=320, le=600)
+    widget_height: int = Field(default=680, ge=480, le=900)
+    page_margin: int = Field(default=24, ge=8, le=64)
+    text_direction: Literal["ltr", "rtl"] = "ltr"
+    elevated_shadow: bool = True
+    open_on_page_load: bool = False
+    font_family: Literal["Inter", "DM Sans", "Manrope", "System UI"] = "Inter"
+    corner_radius: int = Field(default=24, ge=0, le=32)
+    greeting_mode: Literal["always", "once", "interaction", "never"] = "once"
+    interface_language: str = Field(default="English", min_length=2, max_length=60)
+    detect_browser_language: bool = True
+    translations: dict[str, str] = Field(
+        default_factory=lambda: {
+            "newConversation": "New conversation",
+            "sendButton": "Send",
+            "closeChat": "Close chat",
+            "offlineMessage": "We'll be back soon",
+        }
+    )
+    require_consent: bool = False
+    consent_message: str = Field(
+        default="I agree that my messages may be processed to answer my request.", max_length=500
+    )
+    privacy_policy_url: str = Field(default="", max_length=2000)
+    widget_name: str = Field(default="", max_length=120)
+    z_index: int = Field(default=99_999, ge=1, le=2_147_483_647)
+    custom_domain: str = Field(default="", max_length=253)
+    deployment_channel: Literal[
+        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+    ] = "website"
 
     @field_validator("primary_color", "surface_color")
     @classmethod
@@ -125,6 +155,18 @@ class AgentCreate(APIModel):
     name: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
     template: str | None = Field(default=None, max_length=80)
+    tone: AgentTone = AgentTone.FRIENDLY
+    language: str = Field(default="English", min_length=2, max_length=60)
+    deployment_channel: Literal[
+        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+    ] = "website"
+
+
+class AgentDuplicate(APIModel):
+    name: str = Field(min_length=2, max_length=120)
+    deployment_channel: Literal[
+        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+    ] = "website"
 
 
 class AgentPatch(APIModel):
@@ -431,6 +473,7 @@ class WidgetBootstrap(APIModel):
     public_id: str
     name: str
     avatar: str
+    language: str
     appearance: AgentAppearance
     collect_email: bool
     session_endpoint: str
