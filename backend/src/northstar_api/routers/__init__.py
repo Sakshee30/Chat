@@ -11,6 +11,7 @@ from northstar_api.routers import (
     leads,
     whatsapp,
     widget,
+    workspace,
 )
 
 api_router = APIRouter()
@@ -24,3 +25,4 @@ api_router.include_router(integrations.router)
 api_router.include_router(widget.router)
 api_router.include_router(whatsapp.router)
 api_router.include_router(chat.router)
+api_router.include_router(workspace.router)

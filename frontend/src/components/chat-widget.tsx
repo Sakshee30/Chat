@@ -365,7 +365,9 @@ export function ChatWidget({
         message.id === currentResponseId
           ? {
               ...message,
-              content: `${chatUi.responseError} ${event.message}`,
+              content: selectedLanguage === 'English'
+                ? `${chatUi.responseError} ${event.message}`
+                : `${chatUi.responseError} ${chatUi.tryAgain}`,
             }
           : message,
       ),
@@ -378,11 +380,9 @@ export function ChatWidget({
           message.id === responseId
             ? {
                 ...message,
-                content: `${chatUi.responseError} ${
-                  error instanceof Error
-                    ? error.message
-                    : chatUi.tryAgain
-                }`,
+                content: selectedLanguage === 'English' && error instanceof Error
+                  ? `${chatUi.responseError} ${error.message}`
+                  : `${chatUi.responseError} ${chatUi.tryAgain}`,
               }
             : message,
         ),

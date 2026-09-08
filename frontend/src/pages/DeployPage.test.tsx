@@ -12,12 +12,16 @@ const apiMocks = vi.hoisted(() => ({
   update: vi.fn<(agentId: string, patch: AgentPatch) => Promise<Agent>>(),
   listIntegrations: vi.fn(),
   setConnected: vi.fn(),
+  streamChat: vi.fn(),
+  feedback: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
   api: {
     agents: { list: apiMocks.list, update: apiMocks.update },
     integrations: { list: apiMocks.listIntegrations, setConnected: apiMocks.setConnected },
+    streamChat: apiMocks.streamChat,
+    feedback: apiMocks.feedback,
   },
 }));
 
@@ -37,6 +41,13 @@ describe('DeployPage', () => {
     apiMocks.list.mockResolvedValue([original]);
     apiMocks.listIntegrations.mockResolvedValue(structuredClone(demoIntegrations));
     apiMocks.setConnected.mockImplementation(async (integrationId: string, connected: boolean) => ({ ...demoIntegrations.find((item) => item.id === integrationId)!, connected }));
+    apiMocks.streamChat.mockImplementation(async function* () {
+      yield { type: 'start' as const, conversationId: 'preview-conversation', messageId: 'preview-answer' };
+      yield { type: 'user_translation' as const, content: 'नमस्ते' };
+      yield { type: 'token' as const, content: 'मैं आपकी मदद कर सकता हूँ।' };
+      yield { type: 'done' as const, conversationId: 'preview-conversation' };
+    });
+    apiMocks.feedback.mockResolvedValue(undefined);
     apiMocks.update.mockImplementation(async (_agentId, patch) => ({
       ...original,
       ...patch,
@@ -71,6 +82,7 @@ describe('DeployPage', () => {
         welcomeTitle: 'A sharper welcome',
       },
       status: original.status,
+      language: original.language,
     });
     await waitFor(() => expect(apply).toBeEnabled());
     expect(reset).toBeEnabled();
@@ -193,5 +205,43 @@ describe('DeployPage', () => {
     expect(screen.getByLabelText('Facebook Messenger preview')).toBeInTheDocument();
     await user.selectOptions(selector, 'slack');
     expect(screen.getByLabelText('Slack preview')).toBeInTheDocument();
+  });
+
+  it('keeps the chosen integration and runs its localized interactive chat preview', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const channelSelector = await screen.findByRole('combobox', { name: 'Select deployment channel' });
+
+    await user.selectOptions(channelSelector, 'whatsapp');
+    await user.click(screen.getByRole('button', { name: 'Localization' }));
+    expect(channelSelector).toHaveValue('whatsapp');
+    expect(screen.getByLabelText('WhatsApp conversation preview')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Interface language'), 'Hindi');
+    expect(channelSelector).toHaveValue('whatsapp');
+    const messageInput = screen.getByRole('textbox', { name: 'संदेश' });
+    await user.type(messageInput, 'hii');
+    await user.click(screen.getByRole('button', { name: 'भेजें' }));
+
+    expect(await screen.findByText('नमस्ते')).toBeInTheDocument();
+    expect(screen.queryByText('hii')).not.toBeInTheDocument();
+    expect(await screen.findByText('मैं आपकी मदद कर सकता हूँ।')).toBeInTheDocument();
+    expect(apiMocks.streamChat).toHaveBeenCalledWith(expect.objectContaining({ language: 'Hindi', message: 'hii' }), expect.any(AbortSignal));
+
+    const positive = screen.getByRole('button', { name: 'सकारात्मक प्रतिक्रिया' });
+    expect(screen.getByRole('button', { name: 'नकारात्मक प्रतिक्रिया' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'जवाब फिर से बनाएँ' })).toBeInTheDocument();
+    await user.click(positive);
+    await waitFor(() => expect(apiMocks.feedback).toHaveBeenCalledWith('preview-answer', 1, undefined));
+
+    await user.click(screen.getByRole('button', { name: 'अधिक विकल्प' }));
+    await user.click(screen.getByRole('menuitem', { name: 'नई बातचीत' }));
+    expect(screen.queryByText('मैं आपकी मदद कर सकता हूँ।')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith(original.id, expect.objectContaining({
+      language: 'Hindi',
+      appearance: expect.objectContaining({ deploymentChannel: 'whatsapp', interfaceLanguage: 'Hindi' }),
+    })));
   });
 });

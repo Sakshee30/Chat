@@ -11,7 +11,8 @@ import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
-import { SettingsPage } from '@/pages/SettingsPage';
+import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
+import { WorkspacePage } from '@/pages/WorkspacePage';
 import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
 
 function ProtectedLayout() {
@@ -34,7 +35,9 @@ export function App() {
       <Route path="analytics" element={<AnalyticsPage />} />
       <Route path="integrations" element={<IntegrationsPage />} />
       <Route path="deploy" element={<DeployPage />} />
-      <Route path="settings" element={<SettingsPage />} />
+      <Route path="workspace" element={<WorkspacePage />} />
+      <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      <Route path="settings" element={<Navigate to="/workspace" replace />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes>;

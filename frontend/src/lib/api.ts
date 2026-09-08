@@ -444,7 +444,34 @@ function demoDisplayQuestion(question: string, language = 'English'): string {
     },
   };
 
-  return phrases[language]?.[normalized] ?? trimmed;
+  const exact = phrases[language]?.[normalized];
+  if (exact) return exact;
+
+  const subject = normalized.match(/^what is (.+)$/)?.[1];
+  if (subject) {
+    const questionTemplates: Record<string, (value: string) => string> = {
+      Hindi: (value) => `${value} क्या है?`,
+      Spanish: (value) => `¿Qué es ${value}?`,
+      French: (value) => `Qu'est-ce que ${value} ?`,
+      German: (value) => `Was ist ${value}?`,
+      Arabic: (value) => `ما هو ${value}؟`,
+    };
+    return questionTemplates[language]?.(subject) ?? trimmed;
+  }
+
+  const topic = normalized.match(/^tell me about (.+)$/)?.[1];
+  if (topic) {
+    const topicTemplates: Record<string, (value: string) => string> = {
+      Hindi: (value) => `${value} के बारे में बताएँ।`,
+      Spanish: (value) => `Cuéntame sobre ${value}.`,
+      French: (value) => `Parlez-moi de ${value}.`,
+      German: (value) => `Erzählen Sie mir von ${value}.`,
+      Arabic: (value) => `أخبرني عن ${value}.`,
+    };
+    return topicTemplates[language]?.(topic) ?? trimmed;
+  }
+
+  return trimmed;
 }
 
 function demoAnswer(question: string, language = 'English'): string {

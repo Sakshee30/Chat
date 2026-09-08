@@ -1,5 +1,4 @@
 import {
-  BookOpen,
   Bot,
   Check,
   ChevronDown,
@@ -12,12 +11,10 @@ import {
   Globe2,
   Image,
   Instagram,
-  Hash,
   Languages,
   Link2,
   MessageSquareText,
   Monitor,
-  MoreVertical,
   Paintbrush,
   PanelBottom,
   PlugZap,
@@ -25,28 +22,25 @@ import {
   QrCode,
   RotateCcw,
   Save,
-  Search,
-  SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
-  Terminal,
   ToggleRight,
   Type,
   WandSparkles,
-  Workflow,
 } from 'lucide-react';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChatWidget } from '@/components/chat-widget';
+import { IntegrationChatPreview } from '@/components/integration-chat-preview';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, Field, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
 import { createQrAssets, downloadQrAsset, type QrAssets } from '@/lib/qr';
 import { useApi } from '@/lib/use-api';
-import { getChatUiLocale, getWidgetLocale, localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
-import type { Agent, AgentAppearance, AgentPatch, Integration } from '@/types';
+import { getWidgetLocale, localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
+import type { Agent, AgentAppearance, AgentPatch, DeploymentChannel, Integration } from '@/types';
 
 const buildItems = [
   { id: 'source', label: 'Agent source', icon: Bot },
@@ -70,7 +64,7 @@ const shareItems = [
 
 type DeploySection = (typeof buildItems)[number]['id'] | (typeof shareItems)[number]['id'] | 'channel';
 
-const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'font', 'greeting', 'localization', 'gdpr', 'other', 'link']);
+const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'font', 'greeting', 'localization', 'gdpr', 'other', 'link', 'channel']);
 
 function cloneAgent(agent: Agent): Agent {
   return {
@@ -81,8 +75,8 @@ function cloneAgent(agent: Agent): Agent {
   };
 }
 
-function savedDeployState(agent: Agent): Pick<Agent, 'status' | 'appearance'> {
-  return { status: agent.status, appearance: agent.appearance };
+function savedDeployState(agent: Agent): Pick<Agent, 'status' | 'language' | 'appearance'> {
+  return { status: agent.status, language: agent.language, appearance: agent.appearance };
 }
 
 function normalizeAppearance(appearance: AgentAppearance): AgentAppearance {
@@ -172,6 +166,7 @@ export function DeployPage() {
       const saved = await api.agents.update(agent.id, {
         appearance: normalizeAppearance(agent.appearance),
         status: agent.status,
+        language: agent.language,
       });
       const next = cloneAgent(saved);
       setSavedAgents((current) => current.map((item) => item.id === saved.id ? next : item));
@@ -208,15 +203,15 @@ export function DeployPage() {
       </label>
       <label className="deploy-channel-select">
         <span><PlugZap /><small>Deployment channel</small><strong>{integration?.name ?? 'Website widget'}</strong></span>
-        <select aria-label="Select deployment channel" value={integration?.id ?? 'website'} onChange={(event) => { setIntegrationId(event.target.value); setSection(event.target.value === 'website' ? 'look' : 'channel'); }}>
+        <select aria-label="Select deployment channel" value={integration?.id ?? 'website'} onChange={(event) => { const channel = event.target.value as DeploymentChannel; setIntegrationId(channel); updateAppearance({ deploymentChannel: channel }); setSection(channel === 'website' ? 'look' : 'channel'); }}>
           {integrations.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <ChevronDown />
       </label>
       <p>BUILD</p>
-      {buildItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => { setIntegrationId('website'); setSection(id); }}><Icon /><span>{label}</span></button>)}
+      {buildItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
       <p>SHARE</p>
-      {shareItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => { setIntegrationId('website'); setSection(id); }}><Icon /><span>{label}</span></button>)}
+      {shareItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
     </aside>
 
     <section className="deploy-editor">
@@ -265,10 +260,7 @@ export function DeployPage() {
 
 function DeploymentPreview({ agent, integrationId, device, section }: { agent: Agent; integrationId: string; device: 'desktop' | 'mobile'; section: DeploySection }) {
   if (integrationId === 'website') return <WebsiteDeploymentPreview agent={agent} device={device} section={section} />;
-  if (integrationId === 'whatsapp') return <WhatsAppPreview agent={agent} device={device} />;
-  if (integrationId === 'instagram') return <InstagramPreview agent={agent} device={device} />;
-  if (integrationId === 'facebook') return <MessengerPreview agent={agent} device={device} />;
-  return <GenericIntegrationPreview agent={agent} integrationId={integrationId} device={device} />;
+  return <IntegrationChatPreview agent={agent} integrationId={integrationId} device={device} />;
 }
 
 export function AgentDeploymentPreview({ agent, integrationId, device = 'mobile' }: { agent: Agent; integrationId: string; device?: 'desktop' | 'mobile' }) {
@@ -314,51 +306,6 @@ function WebsiteDeploymentPreview({ agent, device, section }: { agent: Agent; de
       <ChatWidget key={agent.appearance.interfaceLanguage ?? 'English'} agent={previewAgent} embedded />
     </div>}
   </div>;
-}
-
-function ChannelFrame({ label, device, className, accent, children }: { label: string; device: 'desktop' | 'mobile'; className: string; accent: string; children: ReactNode }) {
-  return <section className={`channel-frame channel-frame--${device} ${className}`} style={{ '--channel-accent': accent } as CSSProperties} aria-label={label}>{children}</section>;
-}
-
-function WhatsAppPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
-  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
-  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
-  return <ChannelFrame label="WhatsApp conversation preview" device={device} className="whatsapp-template" accent="#1fa855">
-    <aside className="channel-list"><div className="channel-list__brand"><strong>WhatsApp</strong><MoreVertical /></div><div className="channel-search"><Search /> {chatUi.searchChats}</div><div className="channel-contact is-active"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{agent.appearance.welcomeTitle}</small></div><i>{chatUi.activeNow}</i></div><div className="channel-contact"><span>JD</span><div><strong>Jordan Diaz</strong><small>{locale.welcomeMessage}</small></div></div></aside>
-    <div className="channel-conversation"><header><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.businessAccount} · {chatUi.online}</small></div><Search /><MoreVertical /></header><main className="whatsapp-wallpaper"><time>{locale.today}</time><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[0] ?? locale.suggestedQuestions[0]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}<small>12:42 ✓✓</small></div></main><footer><button type="button">+</button><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
-  </ChannelFrame>;
-}
-
-function InstagramPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
-  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
-  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
-  return <ChannelFrame label="Instagram direct-message preview" device={device} className="instagram-template" accent="#d946ef">
-    <aside className="channel-list"><div className="channel-list__brand"><strong>Instagram</strong><Instagram /></div><div className="channel-search"><Search /> {chatUi.searchMessages}</div><div className="channel-contact is-active"><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.activeNow}</small></div></div><div className="channel-contact"><span>AR</span><div><strong>Alex Rivera</strong><small>{locale.welcomeMessage}</small></div></div></aside>
-    <div className="channel-conversation"><header><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.professionalAccount}</small></div><MoreVertical /></header><main><div className="instagram-profile"><span className="instagram-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><strong>{agent.name}</strong><small>{chatUi.aiAssistant}</small></div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[0] ?? locale.suggestedQuestions[0]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}</div></main><footer><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
-  </ChannelFrame>;
-}
-
-function MessengerPreview({ agent, device }: { agent: Agent; device: 'desktop' | 'mobile' }) {
-  const locale = getWidgetLocale(agent.appearance.interfaceLanguage || agent.language);
-  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
-  return <ChannelFrame label="Facebook Messenger preview" device={device} className="messenger-template" accent="#0866ff">
-    <aside className="channel-list"><div className="channel-list__brand"><strong>Messenger</strong><Facebook /></div><div className="channel-search"><Search /> {chatUi.searchMessages}</div><div className="channel-contact is-active"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{agent.appearance.welcomeTitle}</small></div></div><div className="channel-contact"><span>MS</span><div><strong>Morgan Smith</strong><small>{locale.welcomeMessage}</small></div></div></aside>
-    <div className="channel-conversation"><header><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><strong>{agent.name}</strong><small>{chatUi.activeNow}</small></div><MoreVertical /></header><main><time>{locale.today} · 12:40</time><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeTitle}</div><div className="channel-bubble channel-bubble--out">{agent.appearance.suggestedQuestions[1] ?? locale.suggestedQuestions[1]}</div><div className="channel-bubble channel-bubble--in">{agent.appearance.welcomeMessage}</div></main><footer><button type="button">+</button><span>{agent.appearance.placeholder}</span><SendHorizontal /></footer></div>
-  </ChannelFrame>;
-}
-
-function GenericIntegrationPreview({ agent, integrationId, device }: { agent: Agent; integrationId: string; device: 'desktop' | 'mobile' }) {
-  const chatUi = getChatUiLocale(agent.appearance.interfaceLanguage || agent.language);
-  const details = integrationId === 'slack' ? { name: 'Slack', icon: Hash, accent: '#611f69', context: '#support' }
-    : integrationId === 'teams' ? { name: 'Microsoft Teams', icon: MessageSquareText, accent: '#6264a7', context: 'Customer support' }
-      : integrationId === 'api' ? { name: 'Developer API', icon: Terminal, accent: '#146cf6', context: 'Streaming response' }
-        : integrationId === 'notion' ? { name: 'Notion', icon: BookOpen, accent: '#111827', context: 'Knowledge sync' }
-          : { name: 'Zapier', icon: Workflow, accent: '#ff4f00', context: 'Conversation workflow' };
-  const Icon = details.icon;
-  return <ChannelFrame label={`${details.name} preview`} device={device} className={`generic-channel-template generic-channel-template--${integrationId}`} accent={details.accent}>
-    <header><span><Icon /></span><div><strong>{details.name}</strong><small>{details.context}</small></div><Badge tone="success">{chatUi.livePreview}</Badge></header>
-    <main><div className="generic-agent-card"><span style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><div><small>{agent.name}</small><h3>{agent.appearance.welcomeTitle}</h3><p>{agent.appearance.welcomeMessage}</p></div></div>{integrationId === 'api' ? <pre><code>{`event: message\ndata: {\n  "agent": "${agent.publicId}",\n  "content": "${agent.appearance.welcomeMessage}"\n}`}</code></pre> : <div className="generic-flow"><span><Icon /> {chatUi.incomingMessage}</span><i /><span><Sparkles /> {agent.name}</span><i /><span><Check /> {chatUi.responseDelivered}</span></div>}</main>
-  </ChannelFrame>;
 }
 
 interface DeployEditorProps {
