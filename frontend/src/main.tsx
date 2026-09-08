@@ -3,13 +3,14 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from '@/App';
 import { AuthProvider, ToastProvider } from '@/components/providers';
+import { WhatsAppWorkspaceEnhancer } from '@/components/whatsapp-workspace-enhancer';
 import '@/styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ToastProvider>
-        <AuthProvider><App /></AuthProvider>
+        <AuthProvider><App /><WhatsAppWorkspaceEnhancer /></AuthProvider>
       </ToastProvider>
     </BrowserRouter>
   </React.StrictMode>,
