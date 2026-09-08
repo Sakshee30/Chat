@@ -81,16 +81,19 @@ export function WhatsAppWorkspaceEnhancer() {
 
   useEffect(() => {
     const sync = () => {
-      const nextTarget = document.querySelector<HTMLElement>('.builder-workspace .agent-template-preview .channel-frame');
-      const nextAgent = nextTarget ? routeAgentId() : null;
+      const nextTarget = document.querySelector<HTMLElement>('.builder-workspace .agent-template-preview .channel-frame')
+        ?? document.querySelector<HTMLElement>('.deploy-preview .channel-frame');
+      const nextAgent = nextTarget ? (routeAgentId() ?? deployAgentId()) : null;
       setTarget(nextTarget);
       setAgentId(nextAgent);
       setChannel(rememberedChannel(nextAgent) ?? channelFromTarget(nextTarget));
-      setLanguage(document.querySelector<HTMLSelectElement>('.builder-editor select#language')?.value ?? null);
+      setLanguage(document.querySelector<HTMLSelectElement>('.builder-editor select#language')?.value
+        ?? document.querySelector<HTMLSelectElement>('select#ui-language')?.value
+        ?? null);
     };
     const onChange = (event: Event) => {
       if (!(event.target instanceof HTMLSelectElement)) return;
-      if (event.target.id === 'language') {
+      if (event.target.id === 'language' || event.target.id === 'ui-language') {
         setLanguage(event.target.value);
         queueMicrotask(sync);
         return;
@@ -100,7 +103,8 @@ export function WhatsAppWorkspaceEnhancer() {
         const nextChannel = event.target.value;
         if (!nextAgent || !isChannel(nextChannel)) return;
         rememberChannel(nextAgent, nextChannel);
-        if (routeAgentId() === nextAgent) setChannel(nextChannel);
+        setAgentId(nextAgent);
+        setChannel(nextChannel);
         void persistChannel(nextAgent, nextChannel);
         queueMicrotask(sync);
       }
@@ -117,7 +121,8 @@ export function WhatsAppWorkspaceEnhancer() {
     if (!target || !channel) return;
     const previous = target.style.position;
     target.style.position = 'relative';
-    const toolbar = target.closest('.agent-template-preview')?.querySelector<HTMLElement>('.preview-toolbar span');
+    const toolbar = target.closest('.agent-template-preview')?.querySelector<HTMLElement>('.preview-toolbar span')
+      ?? target.closest('.deploy-preview')?.querySelector<HTMLElement>('.preview-heading span');
     const oldText = toolbar?.textContent ?? '';
     if (toolbar) toolbar.textContent = `${channelNames[channel]} preview`;
     return () => { target.style.position = previous; if (toolbar && oldText) toolbar.textContent = oldText; };
