@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  ExternalLink,
   Facebook,
   Hash,
   Instagram,
@@ -13,11 +14,13 @@ import {
   ThumbsDown,
   ThumbsUp,
   Workflow,
+  X,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { api } from '@/lib/api';
 import { getChatUiLocale, getWidgetLocale } from '@/lib/widget-localization';
 import type { Agent } from '@/types';
+import '@/components/integration-chat-preview.css';
 
 interface PreviewMessage {
   id: string;
@@ -25,6 +28,7 @@ interface PreviewMessage {
   content: string;
   rawContent?: string;
   feedback?: 1 | -1;
+  citations?: Array<{ title: string; url?: string }>;
 }
 
 const channelDetails = {
@@ -62,6 +66,10 @@ export function IntegrationChatPreview({
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null);
+  const [feedbackReason, setFeedbackReason] = useState('');
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const controller = useRef<AbortController>();
   const messageArea = useRef<HTMLElement>(null);
 
@@ -73,6 +81,10 @@ export function IntegrationChatPreview({
     setMenuOpen(false);
     setSearchOpen(false);
     setAttachmentOpen(false);
+    setFeedbackMessageId(null);
+    setFeedbackReason('');
+    setFeedbackComment('');
+    setFeedbackOpen(false);
     setStreaming(false);
   }, [agent.id, channelId, selectedLanguage]);
 
@@ -91,6 +103,10 @@ export function IntegrationChatPreview({
     setInput('');
     setStreaming(false);
     setMenuOpen(false);
+    setFeedbackMessageId(null);
+    setFeedbackReason('');
+    setFeedbackComment('');
+    setFeedbackOpen(false);
   };
 
   const send = async (value: string, replaceAssistantId?: string) => {
@@ -105,7 +121,7 @@ export function IntegrationChatPreview({
 
     if (replaceAssistantId) {
       setMessages((current) => current.map((message) => message.id === replaceAssistantId
-        ? { ...message, content: '', feedback: undefined }
+        ? { ...message, content: '', feedback: undefined, citations: [] }
         : message));
     } else {
       setMessages((current) => [
@@ -141,6 +157,10 @@ export function IntegrationChatPreview({
           setMessages((current) => current.map((message) => message.id === activeAssistantId
             ? { ...message, content: message.content + event.content }
             : message));
+        } else if (event.type === 'citation') {
+          setMessages((current) => current.map((message) => message.id === activeAssistantId
+            ? { ...message, citations: [...(message.citations ?? []), { title: event.title, url: event.url }] }
+            : message));
         } else if (event.type === 'error') {
           setMessages((current) => current.map((message) => message.id === activeAssistantId
             ? { ...message, content: selectedLanguage === 'English' ? `${chatUi.responseError} ${event.message}` : `${chatUi.responseError} ${chatUi.tryAgain}` }
@@ -171,6 +191,33 @@ export function IntegrationChatPreview({
       setMessages((current) => current.map((message) => message.id === messageId
         ? { ...message, feedback: undefined }
         : message));
+    }
+  };
+
+  const openNegativeFeedback = (messageId: string) => {
+    setFeedbackMessageId(messageId);
+    setFeedbackReason('');
+    setFeedbackComment('');
+    setFeedbackOpen(true);
+  };
+
+  const submitNegativeFeedback = async () => {
+    if (!feedbackMessageId || !feedbackReason) return;
+    const feedbackText = feedbackComment.trim()
+      ? `${feedbackReason}: ${feedbackComment.trim()}`
+      : feedbackReason;
+
+    try {
+      await api.feedback(feedbackMessageId, -1, feedbackText);
+      setMessages((current) => current.map((message) => message.id === feedbackMessageId
+        ? { ...message, feedback: -1 }
+        : message));
+      setFeedbackMessageId(null);
+      setFeedbackReason('');
+      setFeedbackComment('');
+      setFeedbackOpen(false);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not submit feedback.');
     }
   };
 
@@ -232,9 +279,17 @@ export function IntegrationChatPreview({
           <div className="channel-starters">{starters.slice(0, 3).map((starter) => <button type="button" key={starter} onClick={() => void send(starter)}>{starter}<SendHorizontal /></button>)}</div>
         </> : messages.map((message, index) => <div key={message.id} className={`channel-bubble channel-bubble--${message.role === 'user' ? 'out' : 'in'}`}>
           {message.content || (streaming && index === messages.length - 1 ? <span className="channel-typing"><i /><i /><i /></span> : null)}
+          {message.role === 'assistant' && message.citations?.length ? <div className="channel-citations">
+            {message.citations.map((citation, citationIndex) => <a
+              key={`${citation.title}-${citationIndex}`}
+              href={citation.url || `/agents/${agent.id}/knowledge`}
+              target="_blank"
+              rel="noreferrer"
+            ><ExternalLink />{citation.title}</a>)}
+          </div> : null}
           {message.role === 'assistant' && message.content ? <div className="channel-feedback-actions">
             <button type="button" className={message.feedback === 1 ? 'is-active' : ''} onClick={() => void rate(message.id, 1)} aria-label={chatUi.positiveFeedback} title={chatUi.helpful}><ThumbsUp /></button>
-            <button type="button" className={message.feedback === -1 ? 'is-active' : ''} onClick={() => void rate(message.id, -1)} aria-label={chatUi.negativeFeedback} title={chatUi.notHelpful}><ThumbsDown /></button>
+            <button type="button" className={message.feedback === -1 ? 'is-active' : ''} onClick={() => openNegativeFeedback(message.id)} aria-label={chatUi.negativeFeedback} title={chatUi.notHelpful}><ThumbsDown /></button>
             <button type="button" disabled={streaming} onClick={() => regenerate(index)} aria-label={chatUi.regenerateAnswer} title={chatUi.regenerate}><RefreshCw /></button>
           </div> : null}
         </div>)}
@@ -249,5 +304,30 @@ export function IntegrationChatPreview({
         </form>
       </footer>
     </div>
+
+    {feedbackOpen ? <div className="channel-feedback-modal" role="dialog" aria-modal="true" aria-labelledby="channel-feedback-title">
+      <div className="channel-feedback-modal__dialog">
+        <header>
+          <h2 id="channel-feedback-title">{chatUi.feedbackTitle}</h2>
+          <button type="button" onClick={() => setFeedbackOpen(false)} aria-label={chatUi.closeFeedback}><X /></button>
+        </header>
+        <p>{chatUi.feedbackQuestion}</p>
+        <label htmlFor="channel-feedback-reason">{chatUi.reason}</label>
+        <select id="channel-feedback-reason" value={feedbackReason} onChange={(event) => setFeedbackReason(event.target.value)}>
+          <option value="">{chatUi.selectReason}</option>
+          <option value="Incorrect Answer">{chatUi.incorrectAnswer}</option>
+          <option value="Incomplete Answer">{chatUi.incompleteAnswer}</option>
+          <option value="Hallucinated Response">{chatUi.hallucinatedResponse}</option>
+          <option value="Irrelevant Answer">{chatUi.irrelevantAnswer}</option>
+          <option value="Other">{chatUi.other}</option>
+        </select>
+        <label htmlFor="channel-feedback-comment">{chatUi.additionalComments}</label>
+        <textarea id="channel-feedback-comment" value={feedbackComment} onChange={(event) => setFeedbackComment(event.target.value)} placeholder={chatUi.commentsPlaceholder} rows={4} />
+        <div className="channel-feedback-modal__actions">
+          <button type="button" onClick={() => setFeedbackOpen(false)}>{chatUi.cancel}</button>
+          <button type="button" className="is-primary" disabled={!feedbackReason} onClick={() => void submitNegativeFeedback()}>{chatUi.submitFeedback}</button>
+        </div>
+      </div>
+    </div> : null}
   </section>;
 }

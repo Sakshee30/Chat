@@ -45,6 +45,7 @@ describe('DeployPage', () => {
       yield { type: 'start' as const, conversationId: 'preview-conversation', messageId: 'preview-answer' };
       yield { type: 'user_translation' as const, content: 'नमस्ते' };
       yield { type: 'token' as const, content: 'मैं आपकी मदद कर सकता हूँ।' };
+      yield { type: 'citation' as const, title: 'Northstar knowledge base' };
       yield { type: 'done' as const, conversationId: 'preview-conversation' };
     });
     apiMocks.feedback.mockResolvedValue(undefined);
@@ -192,19 +193,53 @@ describe('DeployPage', () => {
     expect(screen.getByRole('button', { name: 'Preview spark launcher' })).toBeInTheDocument();
   });
 
-  it('shows a different live template for each major messaging integration', async () => {
+  it('shows a compact mobile template for every integration without Test or Live controls', async () => {
     const user = userEvent.setup();
     renderPage();
     const selector = await screen.findByRole('combobox', { name: 'Select deployment channel' });
 
-    await user.selectOptions(selector, 'whatsapp');
-    expect(screen.getByLabelText('WhatsApp conversation preview')).toBeInTheDocument();
-    await user.selectOptions(selector, 'instagram');
-    expect(screen.getByLabelText('Instagram direct-message preview')).toBeInTheDocument();
-    await user.selectOptions(selector, 'facebook');
-    expect(screen.getByLabelText('Facebook Messenger preview')).toBeInTheDocument();
-    await user.selectOptions(selector, 'slack');
-    expect(screen.getByLabelText('Slack preview')).toBeInTheDocument();
+    const channels = [
+      ['whatsapp', 'WhatsApp conversation preview'],
+      ['instagram', 'Instagram direct-message preview'],
+      ['facebook', 'Facebook Messenger preview'],
+      ['slack', 'Slack preview'],
+      ['teams', 'Microsoft Teams preview'],
+      ['api', 'Developer API preview'],
+      ['notion', 'Notion preview'],
+      ['zapier', 'Zapier preview'],
+    ] as const;
+
+    for (const [channel, label] of channels) {
+      await user.selectOptions(selector, channel);
+      expect(screen.getByLabelText(label)).toHaveClass('channel-frame--mobile');
+    }
+    expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Live' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Desktop preview' }));
+    expect(screen.getByLabelText('Zapier preview')).toHaveClass('channel-frame--desktop');
+  });
+
+  it('opens the Website-style feedback options before submitting negative integration feedback', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Select deployment channel' }), 'whatsapp');
+
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Can you help?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Negative feedback' }));
+
+    expect(screen.getByRole('dialog', { name: 'Help us improve' })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Reason'), 'Incorrect Answer');
+    await user.type(screen.getByLabelText('Additional comments'), 'The details are incorrect.');
+    await user.click(screen.getByRole('button', { name: 'Submit feedback' }));
+
+    await waitFor(() => expect(apiMocks.feedback).toHaveBeenCalledWith(
+      'preview-answer',
+      -1,
+      'Incorrect Answer: The details are incorrect.',
+    ));
+    expect(screen.queryByRole('dialog', { name: 'Help us improve' })).not.toBeInTheDocument();
   });
 
   it('keeps the chosen integration and runs its localized interactive chat preview', async () => {
@@ -227,6 +262,7 @@ describe('DeployPage', () => {
     expect(screen.queryByText('hii')).not.toBeInTheDocument();
     expect(await screen.findByText('मैं आपकी मदद कर सकता हूँ।')).toBeInTheDocument();
     expect(apiMocks.streamChat).toHaveBeenCalledWith(expect.objectContaining({ language: 'Hindi', message: 'hii' }), expect.any(AbortSignal));
+    expect(screen.getByRole('link', { name: 'Northstar knowledge base' })).toHaveAttribute('href', `/agents/${original.id}/knowledge`);
 
     const positive = screen.getByRole('button', { name: 'सकारात्मक प्रतिक्रिया' });
     expect(screen.getByRole('button', { name: 'नकारात्मक प्रतिक्रिया' })).toBeInTheDocument();
