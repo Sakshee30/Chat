@@ -7,6 +7,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 COPY migrations ./migrations
+COPY help_content ./help_content
 COPY alembic.ini ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
@@ -21,6 +22,7 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
 COPY --from=builder --chown=app:app /app/migrations /app/migrations
+COPY --from=builder --chown=app:app /app/help_content /app/help_content
 COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN /app/.venv/bin/playwright install --with-deps chromium

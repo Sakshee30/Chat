@@ -21,6 +21,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/') return 'Overview';
   if (pathname.startsWith('/workspace/white-label')) return 'White Label';
   if (pathname.startsWith('/workspace')) return 'Workspace';
+  if (pathname.startsWith('/help')) return 'Help Center';
   if (pathname.startsWith('/agents/') && pathname !== '/agents/new') return 'Agent workspace';
   const item = navigation.find((nav) => nav.to !== '/' && pathname.startsWith(nav.to));
   return item?.label ?? 'Workspace';
@@ -40,7 +41,7 @@ export function AppShell() {
       </nav>
       <div className="rail__bottom">
         <NavLink to="/workspace" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Workspace"><Settings2 /><span>Workspace</span></NavLink>
-        <a className="rail-link" href="mailto:support@northstar.ai" title="Help"><CircleHelp /><span>Help</span></a>
+        <NavLink to="/help" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Help"><CircleHelp /><span>Help</span></NavLink>
         <button className="rail-link rail-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}<span>{expanded ? 'Collapse' : 'Expand'}</span></button>
       </div>
     </aside>
@@ -52,7 +53,7 @@ export function AppShell() {
           <button className="icon-button" aria-label="Notifications"><Bell /><span className="notification-dot" /></button>
           <div className="account-menu">
             <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown /></button>
-            {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div><Link to="/workspace" onClick={() => setAccountOpen(false)}><Settings2 />Workspace settings</Link><button onClick={() => void logout().then(() => navigate('/login'))}><LogOut />Sign out</button></div> : null}
+            {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div><Link to="/workspace" onClick={() => setAccountOpen(false)}><Settings2 />Workspace settings</Link><Link to="/help" onClick={() => setAccountOpen(false)}><CircleHelp />Help Center</Link><button onClick={() => void logout().then(() => navigate('/login'))}><LogOut />Sign out</button></div> : null}
           </div>
         </div>
       </header>

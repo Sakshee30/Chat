@@ -7,6 +7,7 @@ from northstar_api.routers import (
     chat,
     conversations,
     integrations,
+    help,
     knowledge,
     leads,
     whatsapp,
@@ -22,6 +23,7 @@ api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
 api_router.include_router(analytics.router)
 api_router.include_router(integrations.router)
+api_router.include_router(help.router)
 api_router.include_router(widget.router)
 api_router.include_router(whatsapp.router)
 api_router.include_router(chat.router)

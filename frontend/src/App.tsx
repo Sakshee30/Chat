@@ -7,6 +7,13 @@ import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { DeployPage } from '@/pages/DeployPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
+import { HelpArticlePage } from '@/pages/HelpArticlePage';
+import { HelpAskPage } from '@/pages/HelpAskPage';
+import { HelpCategoryPage } from '@/pages/HelpCategoryPage';
+import { HelpCenterPage } from '@/pages/HelpCenterPage';
+import { HelpSearchPage } from '@/pages/HelpSearchPage';
+import { HelpSupportPage } from '@/pages/HelpSupportPage';
+import { HelpSupportRequestPage } from '@/pages/HelpSupportRequestPage';
 import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
@@ -37,6 +44,13 @@ export function App() {
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      <Route path="help" element={<HelpCenterPage />} />
+      <Route path="help/search" element={<HelpSearchPage />} />
+      <Route path="help/categories/:slug" element={<HelpCategoryPage />} />
+      <Route path="help/articles/:slug" element={<HelpArticlePage />} />
+      <Route path="help/ask" element={<HelpAskPage />} />
+      <Route path="help/support" element={<HelpSupportPage />} />
+      <Route path="help/support/:requestId" element={<HelpSupportRequestPage />} />
       <Route path="settings" element={<Navigate to="/workspace" replace />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />

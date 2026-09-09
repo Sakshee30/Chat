@@ -5,6 +5,8 @@ import { App } from '@/App';
 import { ChannelPreviewRuntime } from '@/components/channel-preview-runtime';
 import { AuthProvider, ToastProvider } from '@/components/providers';
 import '@/styles.css';
+import '@/help.css';
+import '@/help-detail.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

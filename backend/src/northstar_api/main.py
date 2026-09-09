@@ -16,13 +16,16 @@ from northstar_api import __version__
 from northstar_api.config import get_settings
 from northstar_api.database import SessionFactory, close_database, initialize_schema
 from northstar_api.health import router as health_router
+from northstar_api.help_config import get_help_settings
 from northstar_api.logging import configure_logging, request_id_ctx
 from northstar_api.middleware import RequestContextMiddleware
 from northstar_api.routers import api_router
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.seed import seed_from_environment
+from northstar_api.services.help_content import sync_help_content
 
 settings = get_settings()
+help_settings = get_help_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +36,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await initialize_schema()
     async with SessionFactory() as session:
         await seed_from_environment(session, settings)
+        if help_settings.help_content_sync_on_startup:
+            await sync_help_content(session)
     logger.info("application_started", version=__version__, environment=settings.app_env)
     try:
         yield
