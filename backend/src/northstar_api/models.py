@@ -74,6 +74,12 @@ class AgentTone(str, enum.Enum):
     PLAYFUL = "playful"
 
 
+class AgentPurpose(str, enum.Enum):
+    LEAD_GENERATION = "lead_generation"
+    EDUCATION = "education"
+    SUPPORT = "support"
+
+
 class KnowledgeKind(str, enum.Enum):
     FILE = "file"
     URL = "url"
@@ -264,6 +270,9 @@ class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     status: Mapped[AgentStatus] = mapped_column(
         enum_column(AgentStatus, "agent_status"), default=AgentStatus.DRAFT
+    )
+    purpose: Mapped[AgentPurpose] = mapped_column(
+        enum_column(AgentPurpose, "agent_purpose"), default=AgentPurpose.SUPPORT, nullable=False
     )
     tone: Mapped[AgentTone] = mapped_column(enum_column(AgentTone, "agent_tone"), default=AgentTone.FRIENDLY)
     language: Mapped[str] = mapped_column(String(60), default="English")

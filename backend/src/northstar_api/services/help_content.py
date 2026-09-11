@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-import yaml
-from sqlalchemy import delete, select, text
+import yaml  # type: ignore[import-untyped]
+from sqlalchemy import delete, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
@@ -98,9 +99,9 @@ def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280)
 
     def flush() -> None:
         nonlocal current, current_words
-        text = "\n".join(current).strip()
-        if text:
-            chunks.append((" > ".join(headings[-3:]), text))
+        chunk_text = "\n".join(current).strip()
+        if chunk_text:
+            chunks.append((" > ".join(headings[-3:]), chunk_text))
         current = []
         current_words = 0
 
@@ -122,11 +123,14 @@ def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280)
     return chunks or [("", body.strip())]
 
 
-async def _embed_chunks(chunks: list[tuple[str, str]]) -> tuple[list[list[float] | None], str | None]:
-    texts = [text for _, text in chunks]
+async def _embed_chunks(
+    chunks: list[tuple[str, str]],
+) -> tuple[list[list[float] | None], str | None]:
+    texts = [chunk_text for _, chunk_text in chunks]
     try:
         vectors = await nvidia_adapter.embed_documents(texts)
-        return vectors, get_settings().nvidia_embedding_model
+        typed_vectors: list[list[float] | None] = [vector for vector in vectors]
+        return typed_vectors, get_settings().nvidia_embedding_model
     except ModelUnavailableError:
         logger.warning("help_content_embedding_unavailable", chunk_count=len(chunks))
         return [None for _ in chunks], None
@@ -140,7 +144,7 @@ async def sync_help_content(
     # Multiple API replicas can start together. Serialize the global docs sync on PostgreSQL
     # so unique slugs and chunk rebuilds remain deterministic without creating a new service.
     if session.bind and session.bind.dialect.name == "postgresql":
-        await session.execute(text("SELECT pg_advisory_xact_lock(741932581204)"))
+        await session.execute(sql_text("SELECT pg_advisory_xact_lock(741932581204)"))
     content_root = root or HELP_CONTENT_ROOT
     categories_path = content_root / "categories.yml"
     if not categories_path.exists():
@@ -184,9 +188,12 @@ async def sync_help_content(
 
     active_slugs = {document.slug for document in documents}
     existing_rows = (await session.scalars(select(HelpArticle))).all()
-    for article in existing_rows:
-        if article.slug not in active_slugs and article.status != HelpArticleStatus.ARCHIVED:
-            article.status = HelpArticleStatus.ARCHIVED
+    for existing_article in existing_rows:
+        if (
+            existing_article.slug not in active_slugs
+            and existing_article.status != HelpArticleStatus.ARCHIVED
+        ):
+            existing_article.status = HelpArticleStatus.ARCHIVED
 
     changed = 0
     for document in documents:
@@ -229,13 +236,13 @@ async def sync_help_content(
             chunks = _chunk_markdown(document.body)
             vectors, embedding_model = await _embed_chunks(chunks)
             await session.execute(delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id))
-            for index, ((heading, text), vector) in enumerate(zip(chunks, vectors, strict=True)):
+            for index, ((heading, chunk_text), vector) in enumerate(zip(chunks, vectors, strict=True)):
                 session.add(
                     HelpArticleChunk(
                         article_id=article.id,
                         chunk_index=index,
                         heading_path=heading[:500],
-                        content=text,
+                        content=chunk_text,
                         embedding_model=embedding_model,
                         embedding=vector,
                     )

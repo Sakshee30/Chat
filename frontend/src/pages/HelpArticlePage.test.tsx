@@ -6,7 +6,7 @@ import { HelpArticlePage } from '@/pages/HelpArticlePage';
 import { demoHelpArticle, demoHelpHome } from '@/lib/help-demo-data';
 
 const apiMocks = vi.hoisted(() => ({ article: vi.fn(), home: vi.fn(), feedback: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { help: apiMocks } }));
+vi.mock('@/lib/help-api', () => ({ helpApi: apiMocks }));
 
 describe('HelpArticlePage', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });

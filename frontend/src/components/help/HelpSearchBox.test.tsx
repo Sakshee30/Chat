@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { HelpSearchBox } from '@/components/help/HelpSearchBox';
 
 const apiMocks = vi.hoisted(() => ({ search: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { help: apiMocks } }));
+vi.mock('@/lib/help-api', () => ({ helpApi: apiMocks }));
 function Location() { return <span data-testid="location">{useLocation().pathname}{useLocation().search}</span>; }
 
 describe('HelpSearchBox', () => {

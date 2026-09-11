@@ -7,7 +7,7 @@ import { HelpSupportPage } from '@/pages/HelpSupportPage';
 import { demoHelpHome } from '@/lib/help-demo-data';
 
 const apiMocks = vi.hoisted(() => ({ home: vi.fn(), supportRequests: vi.fn(), createSupportRequest: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { help: apiMocks } }));
+vi.mock('@/lib/help-api', () => ({ helpApi: apiMocks }));
 
 describe('HelpSupportPage', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); });

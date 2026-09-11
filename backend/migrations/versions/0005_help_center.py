@@ -117,9 +117,13 @@ def upgrade() -> None:
             "tenant_id", "user_id", "article_id", name="uq_help_feedback_tenant_user_article"
         ),
     )
-    op.create_index("ix_help_article_feedback_tenant_id", "help_article_feedback", ["tenant_id"], unique=False)
+    op.create_index(
+        "ix_help_article_feedback_tenant_id", "help_article_feedback", ["tenant_id"], unique=False
+    )
     op.create_index("ix_help_article_feedback_user_id", "help_article_feedback", ["user_id"], unique=False)
-    op.create_index("ix_help_article_feedback_article_id", "help_article_feedback", ["article_id"], unique=False)
+    op.create_index(
+        "ix_help_article_feedback_article_id", "help_article_feedback", ["article_id"], unique=False
+    )
     op.create_index(
         "ix_help_feedback_tenant_article",
         "help_article_feedback",
@@ -170,7 +174,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_help_support_requests_tenant_id", "help_support_requests", ["tenant_id"], unique=False)
+    op.create_index(
+        "ix_help_support_requests_tenant_id", "help_support_requests", ["tenant_id"], unique=False
+    )
     op.create_index("ix_help_support_requests_user_id", "help_support_requests", ["user_id"], unique=False)
     op.create_index("ix_help_support_requests_category", "help_support_requests", ["category"], unique=False)
     op.create_index("ix_help_support_requests_status", "help_support_requests", ["status"], unique=False)
@@ -209,9 +215,7 @@ def upgrade() -> None:
             "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) "
             "WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
         )
-    op.execute(
-        "GRANT SELECT ON help_categories, help_articles, help_article_chunks TO northstar_app"
-    )
+    op.execute("GRANT SELECT ON help_categories, help_articles, help_article_chunks TO northstar_app")
     op.execute(
         "GRANT SELECT, INSERT, UPDATE, DELETE ON help_article_feedback, help_events, help_support_requests "
         "TO northstar_app"

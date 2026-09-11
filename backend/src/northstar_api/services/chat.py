@@ -192,7 +192,7 @@ class ChatCoordinator:
         if translator is None:
             return localized_question_fallback(question, agent.language)
         try:
-            return await translator(question, agent.language, agent.model_profile)
+            return str(await translator(question, agent.language, agent.model_profile))
         except ModelUnavailableError:
             return localized_question_fallback(question, agent.language)
 

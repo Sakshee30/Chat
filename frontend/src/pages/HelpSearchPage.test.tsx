@@ -5,7 +5,7 @@ import { HelpSearchPage } from '@/pages/HelpSearchPage';
 import { demoHelpSearch } from '@/lib/help-demo-data';
 
 const apiMocks = vi.hoisted(() => ({ search: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { help: apiMocks } }));
+vi.mock('@/lib/help-api', () => ({ helpApi: apiMocks }));
 
 describe('HelpSearchPage', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); });

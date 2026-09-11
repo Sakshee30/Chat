@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -33,7 +33,7 @@ class HelpEvidence:
     score: float
 
 
-def _visible(role: Role):
+def _visible(role: Role) -> str:
     # JSON role filtering is applied portably after selecting published candidates.
     return role.value
 
@@ -69,7 +69,9 @@ class HelpSearchService:
     def __init__(self, settings: HelpSettings | None = None) -> None:
         self.settings = settings or get_help_settings()
 
-    async def _articles(self, session: AsyncSession, role: Role, category: str | None = None) -> list[tuple[HelpArticle, HelpCategory]]:
+    async def _articles(
+        self, session: AsyncSession, role: Role, category: str | None = None
+    ) -> list[tuple[HelpArticle, HelpCategory]]:
         statement = (
             select(HelpArticle, HelpCategory)
             .join(HelpCategory, HelpCategory.id == HelpArticle.category_id)
@@ -95,7 +97,10 @@ class HelpSearchService:
         query_tokens = _tokens(normalized)
         if not query_tokens:
             return []
-        candidate_limit = min(limit or self.settings.help_search_candidate_limit, self.settings.help_search_candidate_limit)
+        candidate_limit = min(
+            limit or self.settings.help_search_candidate_limit,
+            self.settings.help_search_candidate_limit,
+        )
         visible_rows = await self._articles(session, role, category)
         if not visible_rows:
             return []
@@ -151,18 +156,30 @@ class HelpSearchService:
             if article.featured and article.id in rank:
                 rank[article.id] += 0.002
 
-        ordered = sorted(rank, key=lambda article_id: (rank[article_id], score_by_id.get(article_id, 0.0)), reverse=True)
+        ordered = sorted(
+            rank,
+            key=lambda article_id: (rank[article_id], score_by_id.get(article_id, 0.0)),
+            reverse=True,
+        )
         hits: list[HelpSearchHit] = []
         for article_id in ordered[:candidate_limit]:
-            article, cat = by_id.get(article_id, (None, None))
-            if article is None or cat is None:
+            pair = by_id.get(article_id)
+            if pair is None:
                 continue
+            article, cat = pair
             hits.append(
                 HelpSearchHit(
                     article=article,
                     category=cat,
-                    score=round(max(score_by_id.get(article_id, 0.0), min(1.0, rank[article_id] * 30)), 4),
-                    snippet=snippet_by_id.get(article_id) or _snippet(article.summary or article.body_markdown, query_tokens),
+                    score=round(
+                        max(
+                            score_by_id.get(article_id, 0.0),
+                            min(1.0, rank[article_id] * 30),
+                        ),
+                        4,
+                    ),
+                    snippet=snippet_by_id.get(article_id)
+                    or _snippet(article.summary or article.body_markdown, query_tokens),
                 )
             )
         return hits
@@ -251,7 +268,10 @@ class HelpSearchService:
             rows = (
                 await session.execute(
                     select(HelpArticleChunk, distance.label("distance"))
-                    .where(HelpArticleChunk.article_id.in_(allowed), HelpArticleChunk.embedding.is_not(None))
+                    .where(
+                        HelpArticleChunk.article_id.in_(allowed),
+                        HelpArticleChunk.embedding.is_not(None),
+                    )
                     .order_by(distance)
                     .limit(self.settings.help_search_candidate_limit)
                 )
@@ -271,16 +291,19 @@ class HelpSearchService:
         chunks = (
             await session.scalars(select(HelpArticleChunk).where(HelpArticleChunk.article_id.in_(allowed)))
         ).all()
-        best: dict[UUID, tuple[float, str]] = {}
+        portable_best: dict[UUID, tuple[float, str]] = {}
         for chunk in chunks:
             if chunk.embedding is None:
                 continue
             score = max(0.0, _cosine(vector, list(chunk.embedding)))
-            previous = best.get(chunk.article_id)
+            previous = portable_best.get(chunk.article_id)
             if previous is None or score > previous[0]:
-                best[chunk.article_id] = (score, chunk.content)
+                portable_best[chunk.article_id] = (score, chunk.content)
         return sorted(
-            [(article_id, score, _snippet(text, set())) for article_id, (score, text) in best.items()],
+            [
+                (article_id, score, _snippet(text, set()))
+                for article_id, (score, text) in portable_best.items()
+            ],
             key=lambda item: item[1],
             reverse=True,
         )
@@ -313,9 +336,9 @@ class HelpSearchService:
             chunk_tokens = _tokens(chunk.content)
             overlap = len(query_tokens & chunk_tokens) / max(1, len(query_tokens))
             phrase_boost = 0.25 if query_cf and query_cf in chunk.content.casefold() else 0.0
-            heading_boost = 0.08 if any(
-                token in (chunk.heading_path or "").casefold() for token in query_tokens
-            ) else 0.0
+            heading_boost = (
+                0.08 if any(token in (chunk.heading_path or "").casefold() for token in query_tokens) else 0.0
+            )
             score = overlap + phrase_boost + heading_boost - (chunk.chunk_index * 0.0001)
             previous = best_chunk.get(chunk.article_id)
             if previous is None or score > previous[0]:

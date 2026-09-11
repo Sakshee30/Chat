@@ -7,16 +7,37 @@ from sqlalchemy import select
 
 from northstar_api.dependencies import CurrentPrincipal, DBSession
 from northstar_api.help_config import get_help_settings
-from northstar_api.help_models import HelpArticle, HelpArticleFeedback, HelpArticleStatus, HelpSupportRequest
-from northstar_api.help_schemas import HelpAiAnswerOut, HelpAskRequest, HelpEventCreate, HelpFeedbackCreate, HelpFeedbackOut, HelpSupportRequestCreate, HelpSupportRequestOut
+from northstar_api.help_models import (
+    HelpArticle,
+    HelpArticleFeedback,
+    HelpArticleStatus,
+    HelpSupportRequest,
+)
+from northstar_api.help_schemas import (
+    HelpAiAnswerOut,
+    HelpAskRequest,
+    HelpEventCreate,
+    HelpFeedbackCreate,
+    HelpFeedbackOut,
+    HelpSupportRequestCreate,
+    HelpSupportRequestOut,
+)
 from northstar_api.models import Role, User
-from northstar_api.routers.help_common import _record_event, _role_visible, _sanitize_diagnostics, _summary, _support_destination, _support_out
+from northstar_api.routers.help_common import (
+    _record_event,
+    _role_visible,
+    _sanitize_diagnostics,
+    _summary,
+    _support_destination,
+    _support_out,
+)
 from northstar_api.services.help_assistant import help_assistant_service
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import redis_services
 
 router = APIRouter()
 settings = get_help_settings()
+
 
 @router.post("/articles/{article_id}/feedback", response_model=HelpFeedbackOut)
 async def help_feedback(
@@ -25,7 +46,11 @@ async def help_feedback(
     principal: CurrentPrincipal,
     session: DBSession,
 ) -> HelpFeedbackOut:
-    article = await session.scalar(select(HelpArticle).where(HelpArticle.id == article_id, HelpArticle.status == HelpArticleStatus.PUBLISHED))
+    article = await session.scalar(
+        select(HelpArticle).where(
+            HelpArticle.id == article_id, HelpArticle.status == HelpArticleStatus.PUBLISHED
+        )
+    )
     if not article:
         raise HTTPException(status_code=404, detail="Help article not found")
     if not _role_visible(article, principal.role):
@@ -77,7 +102,13 @@ async def help_ask(
             headers={"Retry-After": str(rate.retry_after)},
         )
     result = await help_assistant_service.answer(session, role=principal.role, question=payload.question)
-    await _record_event(session, principal, "ai_question", query=payload.question, metadata={"available": result.available})
+    await _record_event(
+        session,
+        principal,
+        "ai_question",
+        query=payload.question,
+        metadata={"available": result.available},
+    )
     await session.commit()
     citations = [_summary(item.article, item.category) for item in result.evidence[:5]]
     return HelpAiAnswerOut(
@@ -86,8 +117,6 @@ async def help_ask(
         suggested_articles=citations[:4],
         available=result.available,
     )
-
-
 
 
 @router.post("/events", status_code=204)
@@ -112,6 +141,7 @@ async def create_help_event(
         query=payload.query,
     )
     await session.commit()
+
 
 @router.post("/support-requests", response_model=HelpSupportRequestOut, status_code=201)
 async def create_help_support_request(
@@ -155,14 +185,24 @@ async def create_help_support_request(
             "contextPath": support_request.context_path or "",
         },
     )
-    await _record_event(session, principal, "support_request", metadata={"requestId": str(support_request.id), "category": support_request.category})
+    await _record_event(
+        session,
+        principal,
+        "support_request",
+        metadata={
+            "requestId": str(support_request.id),
+            "category": support_request.category,
+        },
+    )
     await session.commit()
     await session.refresh(support_request)
     return _support_out(support_request)
 
 
 @router.get("/support-requests", response_model=list[HelpSupportRequestOut])
-async def list_help_support_requests(principal: CurrentPrincipal, session: DBSession) -> list[HelpSupportRequestOut]:
+async def list_help_support_requests(
+    principal: CurrentPrincipal, session: DBSession
+) -> list[HelpSupportRequestOut]:
     statement = select(HelpSupportRequest).where(HelpSupportRequest.tenant_id == principal.tenant_id)
     if principal.role not in {Role.OWNER, Role.ADMIN}:
         statement = statement.where(HelpSupportRequest.user_id == principal.user_id)
@@ -171,7 +211,9 @@ async def list_help_support_requests(principal: CurrentPrincipal, session: DBSes
 
 
 @router.get("/support-requests/{request_id}", response_model=HelpSupportRequestOut)
-async def get_help_support_request(request_id: UUID, principal: CurrentPrincipal, session: DBSession) -> HelpSupportRequestOut:
+async def get_help_support_request(
+    request_id: UUID, principal: CurrentPrincipal, session: DBSession
+) -> HelpSupportRequestOut:
     statement = select(HelpSupportRequest).where(
         HelpSupportRequest.id == request_id,
         HelpSupportRequest.tenant_id == principal.tenant_id,

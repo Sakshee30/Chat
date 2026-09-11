@@ -72,6 +72,7 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOut:
         description=agent.description,
         instructions=agent.instructions,
         status=agent.status,
+        purpose=agent.purpose,
         tone=agent.tone,
         language=agent.language,
         avatar=agent.avatar,
@@ -115,6 +116,7 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
     instructions = {
         "support": "Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing.",
         "lead": "Qualify each lead with one useful question at a time, understand their needs, and recommend the appropriate next step.",
+        "education": "Teach clearly from trusted knowledge, explain concepts step by step, and say when verified information is unavailable.",
     }.get(
         payload.template or "",
         "Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable.",
@@ -124,7 +126,8 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
         name=payload.name.strip(),
         description=payload.description.strip(),
         instructions=instructions,
-        status=AgentStatus.ACTIVE,
+        status=AgentStatus.DRAFT,
+        purpose=payload.purpose,
         tone=payload.tone,
         language=payload.language,
         appearance=appearance,
@@ -141,7 +144,7 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
         aggregate_type="agent",
         aggregate_id=agent.id,
         event_type="agent.created.v1",
-        payload={"agentId": str(agent.id)},
+        payload={"agentId": str(agent.id), "purpose": agent.purpose.value},
     )
     await session.commit()
     return await agent_response(session, agent)
@@ -165,6 +168,7 @@ async def duplicate_agent(
         description=source.description,
         instructions=source.instructions,
         status=AgentStatus.DRAFT,
+        purpose=source.purpose,
         tone=source.tone,
         language=source.language,
         avatar=source.avatar,
@@ -188,6 +192,7 @@ async def duplicate_agent(
             "agentId": str(duplicate.id),
             "sourceAgentId": str(source.id),
             "deploymentChannel": payload.deployment_channel,
+            "purpose": duplicate.purpose.value,
         },
     )
     await session.commit()

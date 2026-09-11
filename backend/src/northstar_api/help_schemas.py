@@ -58,7 +58,7 @@ class HelpSearchPageOut(APIModel):
 
 class HelpSupportDestinationOut(APIModel):
     email: EmailStr
-    external_url: str = ''
+    external_url: str = ""
 
 
 class HelpHomeOut(APIModel):
@@ -78,12 +78,12 @@ class HelpFeedbackCreate(APIModel):
     reason: HelpFeedbackReason | None = None
     comment: str | None = Field(default=None, max_length=1000)
 
-    @model_validator(mode='after')
-    def validate_reason(self) -> 'HelpFeedbackCreate':
+    @model_validator(mode="after")
+    def validate_reason(self) -> HelpFeedbackCreate:
         if self.helpful and self.reason is not None:
-            raise ValueError('positive feedback must not include a negative reason')
+            raise ValueError("positive feedback must not include a negative reason")
         if not self.helpful and self.reason is None:
-            raise ValueError('negative feedback requires a reason')
+            raise ValueError("negative feedback requires a reason")
         return self
 
 
@@ -98,12 +98,12 @@ class HelpFeedbackOut(APIModel):
 class HelpAskRequest(APIModel):
     question: str = Field(min_length=2, max_length=2000)
 
-    @field_validator('question')
+    @field_validator("question")
     @classmethod
     def normalize_help_question(cls, value: str) -> str:
         normalized = value.strip()
         if len(normalized) < 2:
-            raise ValueError('question is too short')
+            raise ValueError("question is too short")
         return normalized
 
 
@@ -115,8 +115,16 @@ class HelpAiAnswerOut(APIModel):
 
 
 HelpSupportCategory = Literal[
-    'account', 'agents', 'knowledge', 'conversations', 'integrations',
-    'deploy', 'workspace', 'billing', 'security', 'other'
+    "account",
+    "agents",
+    "knowledge",
+    "conversations",
+    "integrations",
+    "deploy",
+    "workspace",
+    "billing",
+    "security",
+    "other",
 ]
 
 
@@ -128,13 +136,13 @@ class HelpSupportRequestCreate(APIModel):
     include_diagnostics: bool = True
     diagnostics: dict[str, str] = Field(default_factory=dict)
 
-    @field_validator('subject', 'message')
+    @field_validator("subject", "message")
     @classmethod
     def strip_support_text(cls, value: str) -> str:
         return value.strip()
 
 
-HelpEventType = Literal['search_click', 'ai_citation_click']
+HelpEventType = Literal["search_click", "ai_citation_click"]
 
 
 class HelpEventCreate(APIModel):
@@ -142,7 +150,7 @@ class HelpEventCreate(APIModel):
     article_id: UUID
     query: str | None = Field(default=None, max_length=300)
 
-    @field_validator('query')
+    @field_validator("query")
     @classmethod
     def normalize_help_event_query(cls, value: str | None) -> str | None:
         if value is None:
