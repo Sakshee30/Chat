@@ -10,7 +10,8 @@ from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, select, text as sql_text
+from sqlalchemy import delete, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
