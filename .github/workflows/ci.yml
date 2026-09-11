@@ -175,7 +175,7 @@ jobs:
       - name: Run end-to-end smoke checks
         run: bash scripts/smoke.sh
       - name: Verify migration head
-        run: docker compose exec -T api alembic current | grep -q '0004_whatsapp_per_agent (head)'
+        run: docker compose exec -T api alembic current | grep -q '0006_agent_purpose (head)'
       - name: Capture diagnostic logs
         if: always()
         run: docker compose logs --no-color > compose.log
