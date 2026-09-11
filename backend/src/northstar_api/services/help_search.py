@@ -33,7 +33,7 @@ class HelpEvidence:
     score: float
 
 
-def _visible(role: Role):
+def _visible(role: Role) -> str:
     # JSON role filtering is applied portably after selecting published candidates.
     return role.value
 
@@ -82,11 +82,7 @@ class HelpSearchService:
             statement = statement.where(HelpCategory.slug == category)
         rows = (await session.execute(statement)).all()
         role_value = _visible(role)
-        return [
-            (article, cat)
-            for article, cat in rows
-            if role_value in (article.audience_roles_json or [])
-        ]
+        return [(article, cat) for article, cat in rows if role_value in (article.audience_roles_json or [])]
 
     async def search(
         self,
@@ -120,10 +116,7 @@ class HelpSearchService:
                 if previous is None or score > previous[0]:
                     merged[article_id] = (score, snippet)
             lexical = sorted(
-                [
-                    (article_id, score, snippet)
-                    for article_id, (score, snippet) in merged.items()
-                ],
+                [(article_id, score, snippet) for article_id, (score, snippet) in merged.items()],
                 key=lambda item: item[1],
                 reverse=True,
             )
@@ -140,15 +133,11 @@ class HelpSearchService:
         rank: dict[UUID, float] = {}
         snippet_by_id: dict[UUID, str] = {}
         score_by_id: dict[UUID, float] = {}
-        for position, (article_id, score, snippet) in enumerate(
-            lexical[:candidate_limit], start=1
-        ):
+        for position, (article_id, score, snippet) in enumerate(lexical[:candidate_limit], start=1):
             rank[article_id] = rank.get(article_id, 0.0) + 1.0 / (60 + position)
             score_by_id[article_id] = max(score_by_id.get(article_id, 0.0), score)
             snippet_by_id.setdefault(article_id, snippet)
-        for position, (article_id, score, snippet) in enumerate(
-            semantic[:candidate_limit], start=1
-        ):
+        for position, (article_id, score, snippet) in enumerate(semantic[:candidate_limit], start=1):
             rank[article_id] = rank.get(article_id, 0.0) + 1.0 / (60 + position)
             previous_score = score_by_id.get(article_id, 0.0)
             if score > previous_score or article_id not in snippet_by_id:
@@ -174,9 +163,10 @@ class HelpSearchService:
         )
         hits: list[HelpSearchHit] = []
         for article_id in ordered[:candidate_limit]:
-            article, cat = by_id.get(article_id, (None, None))
-            if article is None or cat is None:
+            pair = by_id.get(article_id)
+            if pair is None:
                 continue
+            article, cat = pair
             hits.append(
                 HelpSearchHit(
                     article=article,
@@ -261,9 +251,7 @@ class HelpSearchService:
             elif query_cf in article.summary.casefold():
                 score += 0.12
             if score > 0:
-                results.append(
-                    (article.id, min(1.0, score), _snippet(article.body_markdown, query_tokens))
-                )
+                results.append((article.id, min(1.0, score), _snippet(article.body_markdown, query_tokens)))
         return sorted(results, key=lambda item: item[1], reverse=True)
 
     async def _semantic(
@@ -295,31 +283,26 @@ class HelpSearchService:
                 if previous is None or score > previous[0]:
                     best[chunk.article_id] = (score, chunk.content)
             return sorted(
-                [
-                    (article_id, score, _snippet(text, set()))
-                    for article_id, (score, text) in best.items()
-                ],
+                [(article_id, score, _snippet(text, set())) for article_id, (score, text) in best.items()],
                 key=lambda item: item[1],
                 reverse=True,
             )
 
         chunks = (
-            await session.scalars(
-                select(HelpArticleChunk).where(HelpArticleChunk.article_id.in_(allowed))
-            )
+            await session.scalars(select(HelpArticleChunk).where(HelpArticleChunk.article_id.in_(allowed)))
         ).all()
-        best: dict[UUID, tuple[float, str]] = {}
+        portable_best: dict[UUID, tuple[float, str]] = {}
         for chunk in chunks:
             if chunk.embedding is None:
                 continue
             score = max(0.0, _cosine(vector, list(chunk.embedding)))
-            previous = best.get(chunk.article_id)
+            previous = portable_best.get(chunk.article_id)
             if previous is None or score > previous[0]:
-                best[chunk.article_id] = (score, chunk.content)
+                portable_best[chunk.article_id] = (score, chunk.content)
         return sorted(
             [
                 (article_id, score, _snippet(text, set()))
-                for article_id, (score, text) in best.items()
+                for article_id, (score, text) in portable_best.items()
             ],
             key=lambda item: item[1],
             reverse=True,
@@ -354,9 +337,7 @@ class HelpSearchService:
             overlap = len(query_tokens & chunk_tokens) / max(1, len(query_tokens))
             phrase_boost = 0.25 if query_cf and query_cf in chunk.content.casefold() else 0.0
             heading_boost = (
-                0.08
-                if any(token in (chunk.heading_path or "").casefold() for token in query_tokens)
-                else 0.0
+                0.08 if any(token in (chunk.heading_path or "").casefold() for token in query_tokens) else 0.0
             )
             score = overlap + phrase_boost + heading_boost - (chunk.chunk_index * 0.0001)
             previous = best_chunk.get(chunk.article_id)

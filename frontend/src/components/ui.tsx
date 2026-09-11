@@ -45,8 +45,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
     const focusFrame = window.requestAnimationFrame(() => {
-      const first = dialogRef.current?.querySelector<HTMLElement>(focusableSelector);
-      (first ?? dialogRef.current)?.focus();
+      if (!dialogRef.current?.contains(document.activeElement)) {
+        const first = dialogRef.current?.querySelector<HTMLElement>(focusableSelector);
+        (first ?? dialogRef.current)?.focus();
+      }
     });
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !closeDisabledRef.current) closeRef.current();

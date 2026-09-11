@@ -40,9 +40,7 @@ async def help_home(
     rows = await _published_rows(session, principal.role)
     category_rows = (
         await session.scalars(
-            select(HelpCategory)
-            .where(HelpCategory.is_active.is_(True))
-            .order_by(HelpCategory.sort_order)
+            select(HelpCategory).where(HelpCategory.is_active.is_(True)).order_by(HelpCategory.sort_order)
         )
     ).all()
     counts: dict[UUID, int] = {}
@@ -113,9 +111,7 @@ async def help_categories(principal: CurrentPrincipal, session: DBSession) -> li
         count_by_category[category.id] = count_by_category.get(category.id, 0) + 1
     categories = (
         await session.scalars(
-            select(HelpCategory)
-            .where(HelpCategory.is_active.is_(True))
-            .order_by(HelpCategory.sort_order)
+            select(HelpCategory).where(HelpCategory.is_active.is_(True)).order_by(HelpCategory.sort_order)
         )
     ).all()
     return [
@@ -126,9 +122,7 @@ async def help_categories(principal: CurrentPrincipal, session: DBSession) -> li
 
 
 @router.get("/categories/{slug}", response_model=HelpCategoryDetailOut)
-async def help_category(
-    slug: str, principal: CurrentPrincipal, session: DBSession
-) -> HelpCategoryDetailOut:
+async def help_category(slug: str, principal: CurrentPrincipal, session: DBSession) -> HelpCategoryDetailOut:
     category = await session.scalar(
         select(HelpCategory).where(HelpCategory.slug == slug, HelpCategory.is_active.is_(True))
     )
@@ -166,9 +160,7 @@ async def help_article(slug: str, principal: CurrentPrincipal, session: DBSessio
         raise HTTPException(status_code=404, detail="Help article not found")
     article, category = row
     if not _role_visible(article, principal.role):
-        raise HTTPException(
-            status_code=403, detail="This guide is not available for your workspace role"
-        )
+        raise HTTPException(status_code=403, detail="This guide is not available for your workspace role")
 
     related_rows = (
         await session.execute(
@@ -203,9 +195,7 @@ async def help_article(slug: str, principal: CurrentPrincipal, session: DBSessio
             .order_by(HelpArticle.sort_order, HelpArticle.title)
         )
     ).all()
-    visible_category_articles = [
-        item for item in category_articles if _role_visible(item, principal.role)
-    ]
+    visible_category_articles = [item for item in category_articles if _role_visible(item, principal.role)]
     current_index = next(
         (index for index, item in enumerate(visible_category_articles) if item.id == article.id), -1
     )
@@ -243,9 +233,7 @@ async def help_search(
     page_size = min(page_size, settings.help_search_page_size_max)
     if category:
         valid_category = await session.scalar(
-            select(HelpCategory).where(
-                HelpCategory.slug == category, HelpCategory.is_active.is_(True)
-            )
+            select(HelpCategory).where(HelpCategory.slug == category, HelpCategory.is_active.is_(True))
         )
         if not valid_category:
             raise HTTPException(status_code=404, detail="Help category not found")

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-import yaml
+import yaml  # type: ignore[import-untyped]
 from sqlalchemy import delete, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,9 +71,7 @@ def _parse_article(path: Path) -> ArticleDocument:
     allowed_roles = {item.value for item in Role}
     if not roles or any(role not in allowed_roles for role in roles):
         raise ValueError(f"roles must be one or more of {sorted(allowed_roles)}")
-    keywords = [
-        str(value).strip()[:80] for value in (meta.get("keywords") or []) if str(value).strip()
-    ]
+    keywords = [str(value).strip()[:80] for value in (meta.get("keywords") or []) if str(value).strip()]
     featured = bool(meta.get("featured", False))
     sort_order = int(meta.get("sort_order", 0))
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -93,9 +91,7 @@ def _parse_article(path: Path) -> ArticleDocument:
     )
 
 
-def _chunk_markdown(
-    body: str, *, target_words: int = 180, max_words: int = 280
-) -> list[tuple[str, str]]:
+def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280) -> list[tuple[str, str]]:
     chunks: list[tuple[str, str]] = []
     headings: list[str] = []
     current: list[str] = []
@@ -133,7 +129,8 @@ async def _embed_chunks(
     texts = [chunk_text for _, chunk_text in chunks]
     try:
         vectors = await nvidia_adapter.embed_documents(texts)
-        return vectors, get_settings().nvidia_embedding_model
+        typed_vectors: list[list[float] | None] = [vector for vector in vectors]
+        return typed_vectors, get_settings().nvidia_embedding_model
     except ModelUnavailableError:
         logger.warning("help_content_embedding_unavailable", chunk_count=len(chunks))
         return [None for _ in chunks], None
@@ -191,9 +188,12 @@ async def sync_help_content(
 
     active_slugs = {document.slug for document in documents}
     existing_rows = (await session.scalars(select(HelpArticle))).all()
-    for article in existing_rows:
-        if article.slug not in active_slugs and article.status != HelpArticleStatus.ARCHIVED:
-            article.status = HelpArticleStatus.ARCHIVED
+    for existing_article in existing_rows:
+        if (
+            existing_article.slug not in active_slugs
+            and existing_article.status != HelpArticleStatus.ARCHIVED
+        ):
+            existing_article.status = HelpArticleStatus.ARCHIVED
 
     changed = 0
     for document in documents:
@@ -235,12 +235,8 @@ async def sync_help_content(
         if content_changed:
             chunks = _chunk_markdown(document.body)
             vectors, embedding_model = await _embed_chunks(chunks)
-            await session.execute(
-                delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id)
-            )
-            for index, ((heading, chunk_text), vector) in enumerate(
-                zip(chunks, vectors, strict=True)
-            ):
+            await session.execute(delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id))
+            for index, ((heading, chunk_text), vector) in enumerate(zip(chunks, vectors, strict=True)):
                 session.add(
                     HelpArticleChunk(
                         article_id=article.id,

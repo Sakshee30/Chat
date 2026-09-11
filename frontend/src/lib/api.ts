@@ -218,7 +218,7 @@ export function agentFromWidgetBootstrap(value: WidgetBootstrap): Agent {
   const appearance = value.appearance.interfaceLanguage === language ? value.appearance : localizeAgentAppearance(value.appearance, language);
   return {
     id: value.agentId, publicId: value.publicId, name: value.name, avatar: value.avatar,
-    description: 'Grounded AI assistant', instructions: '', status: 'active', tone: 'friendly', language,
+    description: 'Grounded AI assistant', instructions: '', status: 'active', purpose: 'support', tone: 'friendly', language,
     conversations: 0, resolutionRate: 0, knowledgeCount: 0, createdAt: now, lastUpdated: now,
     appearance,
     model: { provider: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', temperature: 1, topP: 0.95, maxTokens: 16384, enableThinking: true, citationMode: 'when-available' },

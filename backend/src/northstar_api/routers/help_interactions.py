@@ -54,9 +54,7 @@ async def help_feedback(
     if not article:
         raise HTTPException(status_code=404, detail="Help article not found")
     if not _role_visible(article, principal.role):
-        raise HTTPException(
-            status_code=403, detail="This guide is not available for your workspace role"
-        )
+        raise HTTPException(status_code=403, detail="This guide is not available for your workspace role")
     feedback = await session.scalar(
         select(HelpArticleFeedback).where(
             HelpArticleFeedback.tenant_id == principal.tenant_id,
@@ -103,9 +101,7 @@ async def help_ask(
             detail="Too many Help AI requests. Try again shortly.",
             headers={"Retry-After": str(rate.retry_after)},
         )
-    result = await help_assistant_service.answer(
-        session, role=principal.role, question=payload.question
-    )
+    result = await help_assistant_service.answer(session, role=principal.role, question=payload.question)
     await _record_event(
         session,
         principal,
@@ -207,14 +203,10 @@ async def create_help_support_request(
 async def list_help_support_requests(
     principal: CurrentPrincipal, session: DBSession
 ) -> list[HelpSupportRequestOut]:
-    statement = select(HelpSupportRequest).where(
-        HelpSupportRequest.tenant_id == principal.tenant_id
-    )
+    statement = select(HelpSupportRequest).where(HelpSupportRequest.tenant_id == principal.tenant_id)
     if principal.role not in {Role.OWNER, Role.ADMIN}:
         statement = statement.where(HelpSupportRequest.user_id == principal.user_id)
-    rows = (
-        await session.scalars(statement.order_by(HelpSupportRequest.created_at.desc()).limit(100))
-    ).all()
+    rows = (await session.scalars(statement.order_by(HelpSupportRequest.created_at.desc()).limit(100))).all()
     return [_support_out(row) for row in rows]
 
 
