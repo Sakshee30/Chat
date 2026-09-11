@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -69,7 +69,9 @@ class HelpSearchService:
     def __init__(self, settings: HelpSettings | None = None) -> None:
         self.settings = settings or get_help_settings()
 
-    async def _articles(self, session: AsyncSession, role: Role, category: str | None = None) -> list[tuple[HelpArticle, HelpCategory]]:
+    async def _articles(
+        self, session: AsyncSession, role: Role, category: str | None = None
+    ) -> list[tuple[HelpArticle, HelpCategory]]:
         statement = (
             select(HelpArticle, HelpCategory)
             .join(HelpCategory, HelpCategory.id == HelpArticle.category_id)
@@ -80,7 +82,11 @@ class HelpSearchService:
             statement = statement.where(HelpCategory.slug == category)
         rows = (await session.execute(statement)).all()
         role_value = _visible(role)
-        return [(article, cat) for article, cat in rows if role_value in (article.audience_roles_json or [])]
+        return [
+            (article, cat)
+            for article, cat in rows
+            if role_value in (article.audience_roles_json or [])
+        ]
 
     async def search(
         self,
@@ -95,7 +101,10 @@ class HelpSearchService:
         query_tokens = _tokens(normalized)
         if not query_tokens:
             return []
-        candidate_limit = min(limit or self.settings.help_search_candidate_limit, self.settings.help_search_candidate_limit)
+        candidate_limit = min(
+            limit or self.settings.help_search_candidate_limit,
+            self.settings.help_search_candidate_limit,
+        )
         visible_rows = await self._articles(session, role, category)
         if not visible_rows:
             return []
@@ -111,7 +120,10 @@ class HelpSearchService:
                 if previous is None or score > previous[0]:
                     merged[article_id] = (score, snippet)
             lexical = sorted(
-                [(article_id, score, snippet) for article_id, (score, snippet) in merged.items()],
+                [
+                    (article_id, score, snippet)
+                    for article_id, (score, snippet) in merged.items()
+                ],
                 key=lambda item: item[1],
                 reverse=True,
             )
@@ -128,11 +140,15 @@ class HelpSearchService:
         rank: dict[UUID, float] = {}
         snippet_by_id: dict[UUID, str] = {}
         score_by_id: dict[UUID, float] = {}
-        for position, (article_id, score, snippet) in enumerate(lexical[:candidate_limit], start=1):
+        for position, (article_id, score, snippet) in enumerate(
+            lexical[:candidate_limit], start=1
+        ):
             rank[article_id] = rank.get(article_id, 0.0) + 1.0 / (60 + position)
             score_by_id[article_id] = max(score_by_id.get(article_id, 0.0), score)
             snippet_by_id.setdefault(article_id, snippet)
-        for position, (article_id, score, snippet) in enumerate(semantic[:candidate_limit], start=1):
+        for position, (article_id, score, snippet) in enumerate(
+            semantic[:candidate_limit], start=1
+        ):
             rank[article_id] = rank.get(article_id, 0.0) + 1.0 / (60 + position)
             previous_score = score_by_id.get(article_id, 0.0)
             if score > previous_score or article_id not in snippet_by_id:
@@ -151,7 +167,11 @@ class HelpSearchService:
             if article.featured and article.id in rank:
                 rank[article.id] += 0.002
 
-        ordered = sorted(rank, key=lambda article_id: (rank[article_id], score_by_id.get(article_id, 0.0)), reverse=True)
+        ordered = sorted(
+            rank,
+            key=lambda article_id: (rank[article_id], score_by_id.get(article_id, 0.0)),
+            reverse=True,
+        )
         hits: list[HelpSearchHit] = []
         for article_id in ordered[:candidate_limit]:
             article, cat = by_id.get(article_id, (None, None))
@@ -161,8 +181,15 @@ class HelpSearchService:
                 HelpSearchHit(
                     article=article,
                     category=cat,
-                    score=round(max(score_by_id.get(article_id, 0.0), min(1.0, rank[article_id] * 30)), 4),
-                    snippet=snippet_by_id.get(article_id) or _snippet(article.summary or article.body_markdown, query_tokens),
+                    score=round(
+                        max(
+                            score_by_id.get(article_id, 0.0),
+                            min(1.0, rank[article_id] * 30),
+                        ),
+                        4,
+                    ),
+                    snippet=snippet_by_id.get(article_id)
+                    or _snippet(article.summary or article.body_markdown, query_tokens),
                 )
             )
         return hits
@@ -234,7 +261,9 @@ class HelpSearchService:
             elif query_cf in article.summary.casefold():
                 score += 0.12
             if score > 0:
-                results.append((article.id, min(1.0, score), _snippet(article.body_markdown, query_tokens)))
+                results.append(
+                    (article.id, min(1.0, score), _snippet(article.body_markdown, query_tokens))
+                )
         return sorted(results, key=lambda item: item[1], reverse=True)
 
     async def _semantic(
@@ -251,7 +280,10 @@ class HelpSearchService:
             rows = (
                 await session.execute(
                     select(HelpArticleChunk, distance.label("distance"))
-                    .where(HelpArticleChunk.article_id.in_(allowed), HelpArticleChunk.embedding.is_not(None))
+                    .where(
+                        HelpArticleChunk.article_id.in_(allowed),
+                        HelpArticleChunk.embedding.is_not(None),
+                    )
                     .order_by(distance)
                     .limit(self.settings.help_search_candidate_limit)
                 )
@@ -263,13 +295,18 @@ class HelpSearchService:
                 if previous is None or score > previous[0]:
                     best[chunk.article_id] = (score, chunk.content)
             return sorted(
-                [(article_id, score, _snippet(text, set())) for article_id, (score, text) in best.items()],
+                [
+                    (article_id, score, _snippet(text, set()))
+                    for article_id, (score, text) in best.items()
+                ],
                 key=lambda item: item[1],
                 reverse=True,
             )
 
         chunks = (
-            await session.scalars(select(HelpArticleChunk).where(HelpArticleChunk.article_id.in_(allowed)))
+            await session.scalars(
+                select(HelpArticleChunk).where(HelpArticleChunk.article_id.in_(allowed))
+            )
         ).all()
         best: dict[UUID, tuple[float, str]] = {}
         for chunk in chunks:
@@ -280,7 +317,10 @@ class HelpSearchService:
             if previous is None or score > previous[0]:
                 best[chunk.article_id] = (score, chunk.content)
         return sorted(
-            [(article_id, score, _snippet(text, set())) for article_id, (score, text) in best.items()],
+            [
+                (article_id, score, _snippet(text, set()))
+                for article_id, (score, text) in best.items()
+            ],
             key=lambda item: item[1],
             reverse=True,
         )
@@ -313,9 +353,11 @@ class HelpSearchService:
             chunk_tokens = _tokens(chunk.content)
             overlap = len(query_tokens & chunk_tokens) / max(1, len(query_tokens))
             phrase_boost = 0.25 if query_cf and query_cf in chunk.content.casefold() else 0.0
-            heading_boost = 0.08 if any(
-                token in (chunk.heading_path or "").casefold() for token in query_tokens
-            ) else 0.0
+            heading_boost = (
+                0.08
+                if any(token in (chunk.heading_path or "").casefold() for token in query_tokens)
+                else 0.0
+            )
             score = overlap + phrase_boost + heading_boost - (chunk.chunk_index * 0.0001)
             previous = best_chunk.get(chunk.article_id)
             if previous is None or score > previous[0]:
