@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator, model_validator
 
 from northstar_api.models import (
+    AgentPurpose,
     AgentStatus,
     AgentTone,
     Channel,
@@ -155,6 +156,7 @@ class AgentCreate(APIModel):
     name: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
     template: str | None = Field(default=None, max_length=80)
+    purpose: AgentPurpose = AgentPurpose.SUPPORT
     tone: AgentTone = AgentTone.FRIENDLY
     language: str = Field(default="English", min_length=2, max_length=60)
     deployment_channel: Literal[
@@ -174,6 +176,7 @@ class AgentPatch(APIModel):
     description: str | None = Field(default=None, max_length=500)
     instructions: str | None = Field(default=None, max_length=20_000)
     status: AgentStatus | None = None
+    purpose: AgentPurpose | None = None
     tone: AgentTone | None = None
     language: str | None = Field(default=None, max_length=60)
     avatar: str | None = Field(default=None, max_length=500)
@@ -189,6 +192,7 @@ class AgentOut(APIModel):
     description: str
     instructions: str
     status: AgentStatus
+    purpose: AgentPurpose
     tone: AgentTone
     language: str
     avatar: str
