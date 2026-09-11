@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
@@ -70,7 +70,9 @@ def _parse_article(path: Path) -> ArticleDocument:
     allowed_roles = {item.value for item in Role}
     if not roles or any(role not in allowed_roles for role in roles):
         raise ValueError(f"roles must be one or more of {sorted(allowed_roles)}")
-    keywords = [str(value).strip()[:80] for value in (meta.get("keywords") or []) if str(value).strip()]
+    keywords = [
+        str(value).strip()[:80] for value in (meta.get("keywords") or []) if str(value).strip()
+    ]
     featured = bool(meta.get("featured", False))
     sort_order = int(meta.get("sort_order", 0))
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -90,7 +92,9 @@ def _parse_article(path: Path) -> ArticleDocument:
     )
 
 
-def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280) -> list[tuple[str, str]]:
+def _chunk_markdown(
+    body: str, *, target_words: int = 180, max_words: int = 280
+) -> list[tuple[str, str]]:
     chunks: list[tuple[str, str]] = []
     headings: list[str] = []
     current: list[str] = []
@@ -98,9 +102,9 @@ def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280)
 
     def flush() -> None:
         nonlocal current, current_words
-        text = "\n".join(current).strip()
-        if text:
-            chunks.append((" > ".join(headings[-3:]), text))
+        chunk_text = "\n".join(current).strip()
+        if chunk_text:
+            chunks.append((" > ".join(headings[-3:]), chunk_text))
         current = []
         current_words = 0
 
@@ -122,8 +126,10 @@ def _chunk_markdown(body: str, *, target_words: int = 180, max_words: int = 280)
     return chunks or [("", body.strip())]
 
 
-async def _embed_chunks(chunks: list[tuple[str, str]]) -> tuple[list[list[float] | None], str | None]:
-    texts = [text for _, text in chunks]
+async def _embed_chunks(
+    chunks: list[tuple[str, str]],
+) -> tuple[list[list[float] | None], str | None]:
+    texts = [chunk_text for _, chunk_text in chunks]
     try:
         vectors = await nvidia_adapter.embed_documents(texts)
         return vectors, get_settings().nvidia_embedding_model
@@ -140,7 +146,7 @@ async def sync_help_content(
     # Multiple API replicas can start together. Serialize the global docs sync on PostgreSQL
     # so unique slugs and chunk rebuilds remain deterministic without creating a new service.
     if session.bind and session.bind.dialect.name == "postgresql":
-        await session.execute(text("SELECT pg_advisory_xact_lock(741932581204)"))
+        await session.execute(sql_text("SELECT pg_advisory_xact_lock(741932581204)"))
     content_root = root or HELP_CONTENT_ROOT
     categories_path = content_root / "categories.yml"
     if not categories_path.exists():
@@ -228,14 +234,18 @@ async def sync_help_content(
         if content_changed:
             chunks = _chunk_markdown(document.body)
             vectors, embedding_model = await _embed_chunks(chunks)
-            await session.execute(delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id))
-            for index, ((heading, text), vector) in enumerate(zip(chunks, vectors, strict=True)):
+            await session.execute(
+                delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id)
+            )
+            for index, ((heading, chunk_text), vector) in enumerate(
+                zip(chunks, vectors, strict=True)
+            ):
                 session.add(
                     HelpArticleChunk(
                         article_id=article.id,
                         chunk_index=index,
                         heading_path=heading[:500],
-                        content=text,
+                        content=chunk_text,
                         embedding_model=embedding_model,
                         embedding=vector,
                     )
