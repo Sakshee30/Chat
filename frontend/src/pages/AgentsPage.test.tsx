@@ -32,6 +32,7 @@ describe('AgentsPage duplicate flow', () => {
       publicId: 'created-public',
       name: input.name,
       description: input.description,
+      purpose: input.purpose ?? 'support',
       tone: input.tone ?? 'friendly',
       language: input.language ?? 'English',
       status: 'draft',
@@ -70,7 +71,7 @@ describe('AgentsPage duplicate flow', () => {
     }));
   });
 
-  it('guides a first-time user through language and channel selection', async () => {
+  it('guides a first-time user through purpose, language and channel selection', async () => {
     const user = userEvent.setup();
     render(<MemoryRouter><ToastProvider><AgentsPage /></ToastProvider></MemoryRouter>);
 
@@ -88,8 +89,28 @@ describe('AgentsPage duplicate flow', () => {
     await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Hindi Support',
       template: 'support',
+      purpose: 'support',
       language: 'Hindi',
       deploymentChannel: 'whatsapp',
+    })));
+  });
+
+  it('creates an education agent with education purpose', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ToastProvider><AgentsPage /></ToastProvider></MemoryRouter>);
+
+    await user.click(await screen.findByRole('button', { name: 'Create agent' }));
+    await user.type(screen.getByLabelText('Agent name'), 'CPA Tutor');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByText('Education'));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getAllByRole('button', { name: 'Create agent' }).at(-1)!);
+
+    await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'CPA Tutor',
+      template: 'education',
+      purpose: 'education',
     })));
   });
 });
