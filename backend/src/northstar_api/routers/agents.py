@@ -126,7 +126,7 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
         name=payload.name.strip(),
         description=payload.description.strip(),
         instructions=instructions,
-        status=AgentStatus.ACTIVE,
+        status=AgentStatus.DRAFT,
         purpose=payload.purpose,
         tone=payload.tone,
         language=payload.language,
