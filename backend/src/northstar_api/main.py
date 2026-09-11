@@ -20,9 +20,9 @@ from northstar_api.help_config import get_help_settings
 from northstar_api.logging import configure_logging, request_id_ctx
 from northstar_api.middleware import RequestContextMiddleware
 from northstar_api.routers import api_router
+from northstar_api.services.help_content import sync_help_content
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.seed import seed_from_environment
-from northstar_api.services.help_content import sync_help_content
 
 settings = get_settings()
 help_settings = get_help_settings()
