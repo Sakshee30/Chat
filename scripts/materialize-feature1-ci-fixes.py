@@ -80,11 +80,27 @@ replace(
     "            article, cat = by_id.get(article_id, (None, None))\n            if article is None or cat is None:\n                continue",
     "            pair = by_id.get(article_id)\n            if pair is None:\n                continue\n            article, cat = pair",
 )
-replace(
-    "backend/src/northstar_api/services/help_search.py",
-    "        best: dict[UUID, tuple[float, str]] = {}\n        for chunk in chunks:\n            if chunk.embedding is None:\n                continue\n            score = max(0.0, _cosine(vector, list(chunk.embedding)))\n            previous = best.get(chunk.article_id)\n            if previous is None or score > previous[0]:\n                best[chunk.article_id] = (score, chunk.content)\n        return sorted(\n            [(article_id, score, _snippet(text, set())) for article_id, (score, text) in best.items()],",
-    "        portable_best: dict[UUID, tuple[float, str]] = {}\n        for chunk in chunks:\n            if chunk.embedding is None:\n                continue\n            score = max(0.0, _cosine(vector, list(chunk.embedding)))\n            previous = portable_best.get(chunk.article_id)\n            if previous is None or score > previous[0]:\n                portable_best[chunk.article_id] = (score, chunk.content)\n        return sorted(\n            [(article_id, score, _snippet(text, set())) for article_id, (score, text) in portable_best.items()],",
-)
+
+# Rename only the portable semantic-search accumulator; its PostgreSQL sibling intentionally keeps `best`.
+search_path = ROOT / "backend/src/northstar_api/services/help_search.py"
+search_source = search_path.read_text(encoding="utf-8")
+portable_marker = "\n        chunks = ("
+if "portable_best: dict[UUID, tuple[float, str]]" not in search_source:
+    if portable_marker not in search_source:
+        raise SystemExit("Expected portable Help semantic-search block was not found")
+    prefix, suffix = search_source.split(portable_marker, 1)
+    replacements = (
+        ("        best: dict[UUID, tuple[float, str]] = {}", "        portable_best: dict[UUID, tuple[float, str]] = {}"),
+        ("previous = best.get(chunk.article_id)", "previous = portable_best.get(chunk.article_id)"),
+        ("best[chunk.article_id] = (score, chunk.content)", "portable_best[chunk.article_id] = (score, chunk.content)"),
+        ("best.items()", "portable_best.items()"),
+    )
+    for old, new in replacements:
+        if old not in suffix:
+            raise SystemExit(f"Expected portable Help semantic-search patch target was not found: {old!r}")
+        suffix = suffix.replace(old, new, 1)
+    search_path.write_text(prefix + portable_marker + suffix, encoding="utf-8")
+
 replace(
     "backend/src/northstar_api/services/help_content.py",
     "import yaml\n",
