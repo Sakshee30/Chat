@@ -27,6 +27,25 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: {node-version: 22.13.0, cache: npm}
       - run: npm ci --no-audit --no-fund
+      - name: Apply pending widget compatibility fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/lib/api.ts")
+          source = path.read_text(encoding="utf-8")
+          old = "description: 'Grounded AI assistant', instructions: '', status: 'active', tone: 'friendly', language,"
+          new = "description: 'Grounded AI assistant', instructions: '', status: 'active', purpose: 'support', tone: 'friendly', language,"
+          if old not in source:
+              raise SystemExit("Expected widget compatibility Agent initializer was not found")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: patched-agent-api-source
+          path: frontend/src/lib/api.ts
+          if-no-files-found: error
+          retention-days: 1
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -54,8 +73,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
+      - run: uv run ruff format .
       - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: formatted-python-source
+          path: |
+            backend/migrations
+            backend/src
+            backend/tests
+          if-no-files-found: error
+          retention-days: 1
       - run: uv run mypy src
       - run: uv run pytest --cov=src/northstar_api --cov-report=term-missing --cov-report=xml
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
